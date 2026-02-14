@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod database;
+pub mod tasks;
 pub mod timer;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -14,6 +15,14 @@ pub fn run() {
             timer::resume_timer,
             timer::cancel_timer,
             timer::get_timer_state,
+            tasks::create_task,
+            tasks::update_task,
+            tasks::delete_task,
+            tasks::complete_task,
+            tasks::abandon_task,
+            tasks::get_tasks_by_date,
+            tasks::clone_task,
+            tasks::reorder_tasks,
         ])
         .setup(|app| {
             let app_data_dir = app
@@ -35,9 +44,6 @@ mod tests {
 
     #[test]
     fn tauri_app_builds() {
-        // Verify the Tauri app can be built using Tauri's mock runtime.
-        // This validates plugin registration, command handlers, and capability
-        // config without requiring the real WebView2 runtime.
         let _app = mock_builder()
             .plugin(tauri_plugin_opener::init())
             .plugin(tauri_plugin_sql::Builder::default().build())
@@ -47,6 +53,14 @@ mod tests {
                 crate::timer::resume_timer,
                 crate::timer::cancel_timer,
                 crate::timer::get_timer_state,
+                crate::tasks::create_task,
+                crate::tasks::update_task,
+                crate::tasks::delete_task,
+                crate::tasks::complete_task,
+                crate::tasks::abandon_task,
+                crate::tasks::get_tasks_by_date,
+                crate::tasks::clone_task,
+                crate::tasks::reorder_tasks,
             ])
             .build(tauri::test::mock_context(noop_assets()))
             .expect("failed to build mock Tauri app");

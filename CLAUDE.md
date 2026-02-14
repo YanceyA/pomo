@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** M3 complete — Rust timer state machine (PR 3.1) and timer frontend UI (PR 3.2) with Zustand store, countdown display with progress ring, interval type selector, and completion notifications. M2 complete (SQLite schema v1, TypeScript repository layer). PR 4.1 (Task CRUD and subtasks) is next.
+**Current status:** PR 4.1 complete — Task CRUD with subtasks, Rust backend commands, Zustand task store, and React task UI components. M3 complete (timer state machine + frontend). M2 complete (SQLite schema v1, TypeScript repository layer). PR 4.2 (Drag-and-drop reordering) is next.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -63,14 +63,24 @@ pomo/
 ├── src/                        # React frontend
 │   ├── components/
 │   │   ├── ui/
-│   │   │   └── button.tsx      # shadcn/ui Button component
+│   │   │   ├── button.tsx      # shadcn/ui Button component
+│   │   │   ├── badge.tsx       # shadcn/ui Badge component
+│   │   │   ├── checkbox.tsx    # shadcn/ui Checkbox component
+│   │   │   ├── dialog.tsx      # shadcn/ui Dialog component
+│   │   │   ├── input.tsx       # shadcn/ui Input component
+│   │   │   └── label.tsx       # shadcn/ui Label component
 │   │   ├── TimerPage.tsx       # Main timer page — combines display, controls, selector
 │   │   ├── TimerDisplay.tsx    # Large countdown (MM:SS) with SVG progress ring
 │   │   ├── TimerControls.tsx   # Start, Pause/Resume, Cancel buttons
 │   │   ├── IntervalTypeSelector.tsx  # Work / Short Break / Long Break radio group
+│   │   ├── TaskList.tsx        # Day's task list with date header and add button
+│   │   ├── TaskPanel.tsx       # Individual task card with status, tag, jira, subtasks, actions
+│   │   ├── TaskCreateDialog.tsx # Dialog for creating tasks and subtasks
+│   │   ├── SubtaskItem.tsx     # Compact subtask row with checkbox and delete
 │   │   └── __tests__/          # Component tests (mock Tauri APIs via vi.mock)
 │   ├── stores/
 │   │   ├── timerStore.ts       # Zustand store for timer state, Tauri event subscriptions
+│   │   ├── taskStore.ts        # Zustand store for task CRUD, day selection, dialog state
 │   │   └── __tests__/          # Store tests
 │   ├── lib/
 │   │   ├── utils.ts            # cn() utility (clsx + tailwind-merge)
@@ -90,8 +100,9 @@ pomo/
 ├── src-tauri/                  # Rust backend (Tauri)
 │   ├── src/
 │   │   ├── main.rs             # Windows entry point → pomo_lib::run()
-│   │   ├── lib.rs              # Tauri app builder, DB init + timer state in setup hook, smoke test
+│   │   ├── lib.rs              # Tauri app builder, DB init + timer/task state in setup hook, smoke test
 │   │   ├── timer.rs            # Timer state machine, Tauri commands, background tick task
+│   │   ├── tasks.rs            # Task CRUD Tauri commands (create, update, delete, complete, abandon, clone, reorder)
 │   │   └── database.rs         # SQLite migration runner, schema v1, cloud-sync detection
 │   ├── .cargo/
 │   │   └── config.toml         # Clippy lint configuration (pedantic)
@@ -156,7 +167,8 @@ Two jobs: `lint-and-test` then `build`.
 - The `test` feature is enabled on the `tauri` dependency.
 - Database tests use `rusqlite::Connection::open_in_memory()` with `PRAGMA foreign_keys = ON` for full schema validation (26 tests covering migrations, tables, indexes, trigger, settings, constraints, foreign keys, and cloud path detection).
 - Timer tests (32 tests) cover: state machine transitions, invalid transition rejection, work count tracking, long break reset, serde roundtrip, DB interval operations (insert/complete/cancel), and full lifecycle cycles.
-- Current Rust test count: 59 (26 database + 32 timer + 1 app build smoke).
+- Task tests (19 tests) cover: CRUD operations, subtask creation, parent completion constraints (pending subtasks block completion, abandoned subtasks allow completion), status transitions, cloning with deep subtask copy, reorder position updates, and serde roundtrip.
+- Current Rust test count: 78 (26 database + 32 timer + 19 task + 1 app build smoke).
 
 ### Frontend Testing Notes
 - Repository tests mock the `../db` module with `vi.mock()` to avoid Tauri IPC calls.
@@ -166,7 +178,9 @@ Two jobs: `lint-and-test` then `build`.
 - Component and store tests mock `@tauri-apps/api/core` (invoke), `@tauri-apps/api/event` (listen), and `@/lib/settingsRepository` via `vi.mock()`.
 - Timer store tests verify state transitions, event handling, and Tauri command invocations.
 - Component tests use `@testing-library/user-event` for user interaction simulation.
-- Current test count: 78 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 15 timer store + 8 timer display + 8 timer controls + 7 interval type selector).
+- Task store tests verify CRUD command invocations, date selection, and dialog state management.
+- Task component tests (TaskPanel, TaskCreateDialog, SubtaskItem) verify rendering of all fields, user interactions (checkbox, actions menu, form submit), and correct command invocations.
+- Current test count: 120 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 15 timer store + 14 task store + 8 timer display + 8 timer controls + 7 interval type selector + 12 task panel + 9 task create dialog + 7 subtask item).
 
 ## Architecture Notes
 
@@ -192,6 +206,20 @@ Two jobs: `lint-and-test` then `build`.
 - **IntervalTypeSelector** (`src/components/IntervalTypeSelector.tsx`): radio group for Work/Short Break/Long Break. Disabled during active timer. Shows duration label under each option.
 - **TimerPage** (`src/components/TimerPage.tsx`): main page combining all timer components. Shows "Pomodoro X of Y" count. Displays completion notice with contextual messages (suggests long break after N work intervals). Initializes event listeners and loads settings on mount.
 - **Event flow**: TimerPage `useEffect` → `loadSettings()` + `syncState()` + `initEventListeners()`. Tick events update `remainingMs` in store. Complete events reset to idle and show completion notice.
+
+### Task Management (Implemented — PR 4.1)
+- Tauri commands in `src-tauri/src/tasks.rs`: `create_task`, `update_task`, `delete_task`, `complete_task`, `abandon_task`, `get_tasks_by_date`, `clone_task`, `reorder_tasks`.
+- Commands open their own DB connection with `PRAGMA foreign_keys = ON` (not sharing the timer's connection).
+- `complete_task` validates no pending subtasks exist before allowing parent completion — returns error if blocked.
+- `clone_task` deep copies the task and all its subtasks with fresh IDs and `pending` status.
+- Task auto-positioning: `create_task` computes the next position as `MAX(position) + 1` for the day.
+- **Zustand store** (`src/stores/taskStore.ts`): manages task list, selected date, create dialog state. All actions call Tauri commands via `invoke()` then reload the task list.
+- **TaskList** (`src/components/TaskList.tsx`): renders day header, add button, and TaskPanel for each parent task. Filters subtasks from the flat task array.
+- **TaskPanel** (`src/components/TaskPanel.tsx`): displays task title, tag badge, Jira key, status indicator, subtask list, and expandable action menu (add subtask, complete, abandon, clone, delete).
+- **TaskCreateDialog** (`src/components/TaskCreateDialog.tsx`): shadcn/ui Dialog for creating tasks (title, tag, Jira key) and subtasks (title only).
+- **SubtaskItem** (`src/components/SubtaskItem.tsx`): compact checkbox + title row for subtasks with complete and delete actions.
+- Status transitions: pending → completed (with subtask check), pending → abandoned.
+- App layout updated: `App.tsx` renders `<TimerPage />` + `<TaskList />` in a vertical stack.
 
 ### Database
 - SQLite with 4 tables: `user_settings`, `timer_intervals`, `tasks`, `task_interval_links`.

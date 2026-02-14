@@ -258,12 +258,12 @@ main (protected, always releasable)
 
 | # | Verify | Pass? |
 |---|--------|-------|
-| 1 | Start a 25-minute work timer — countdown displays and decrements | |
-| 2 | Pause timer — countdown stops. Resume — countdown continues from where it left off | |
-| 3 | Cancel timer — returns to idle state | |
-| 4 | Let a timer complete — notification appears, interval logged in DB | |
-| 5 | Complete 4 work intervals — app suggests a long break | |
-| 6 | Minimize the window during a timer — timer still completes on time | |
+| 1 | Start a 25-minute work timer — countdown displays and decrements |✅  |
+| 2 | Pause timer — countdown stops. Resume — countdown continues from where it left off | ✅ |
+| 3 | Cancel timer — returns to idle state |✅  |
+| 4 | Let a timer complete — notification appears, interval logged in DB |✅  |
+| 5 | Complete 4 work intervals — app suggests a long break |✅  |
+| 6 | Minimize the window during a timer — timer still completes on time |✅  |
 
 ---
 
@@ -273,25 +273,44 @@ main (protected, always releasable)
 
 **Spec coverage:** TK-1, TK-2, TK-3, TK-4, TK-7, TK-8, TK-9, TK-10, TK-11, TK-12
 
-### PR 4.1 — Task CRUD and subtasks
+### PR 4.1 — Task CRUD and subtasks ✅ COMPLETE
+
+**Status:** Done (2026-02-14). All testing gates passed (78 Rust tests, 120 Vitest tests).
 
 **Scope:**
-- Tauri commands: `create_task`, `update_task`, `delete_task`, `create_subtask`, `abandon_task`, `complete_task`
-- Enforce: subtask completion before parent completion (TK-10) in Rust
+- Tauri commands in `src-tauri/src/tasks.rs`: `create_task`, `update_task`, `delete_task`, `complete_task`, `abandon_task`, `get_tasks_by_date`, `clone_task`, `reorder_tasks`
+- Enforce: subtask completion before parent completion (TK-10) in Rust — `complete_task` checks for pending subtasks
 - Enforce: single-level subtask nesting (trigger + app logic)
 - Task creation form (shadcn/ui Dialog): title, optional tag, optional Jira key
-- Task panel component: title, tag badge, status indicator, Jira link, subtask list
-- Subtask component: checkbox + title (inline, compact)
+- Task panel component: title, tag badge, status indicator, Jira link, subtask list, expandable action menu
+- Subtask component: checkbox + title (inline, compact) with delete
 - Status transitions: pending → completed, pending → abandoned
 - Clone task command: deep copy including subtasks (TK-11)
+- Zustand task store (`taskStore.ts`): CRUD actions, date selection, dialog state
+- App layout updated: TimerPage + TaskList in vertical stack
+
+**Notes:**
+- shadcn/ui Dialog, Input, Label, Badge, Checkbox components added.
+- Task commands open their own DB connection with `PRAGMA foreign_keys = ON`.
+- Auto-positioning: `create_task` computes next position as `MAX(position) + 1`.
+- `complete_task` returns error "Cannot complete task with pending subtasks" when blocked.
 
 **Testing:**
-- Rust tests: CRUD operations on `tasks` table
-- Rust tests: cannot complete parent with pending subtasks
-- Rust tests: clone produces independent copy with subtasks
-- Vitest + RTL: task panel renders all fields correctly
-- Vitest + RTL: create dialog submits correct data
-- Vitest + RTL: checkbox toggles subtask completion
+- Rust tests: CRUD operations on tasks table — **PASS**
+- Rust tests: cannot complete parent with pending subtasks — **PASS**
+- Rust tests: can complete parent with abandoned subtasks — **PASS**
+- Rust tests: clone produces independent copy with subtasks — **PASS**
+- Rust tests: reorder updates position values — **PASS**
+- Rust tests: status transitions and serde roundtrip — **PASS**
+- Vitest + RTL: task panel renders title, tag, jira key, subtasks — **PASS**
+- Vitest + RTL: create dialog submits correct data for tasks and subtasks — **PASS**
+- Vitest + RTL: checkbox toggles subtask completion — **PASS**
+- Vitest + RTL: actions menu (complete, abandon, clone, delete) invokes correct commands — **PASS**
+- Vitest: task store CRUD operations, date selection, dialog state — **PASS**
+- `npm run lint` passes — **PASS**
+- `npm run typecheck` passes — **PASS**
+- `npm run test` passes (120 tests) — **PASS**
+- `cargo clippy -- -D warnings` passes — **PASS**
 
 ### PR 4.2 — Drag-and-drop reordering
 

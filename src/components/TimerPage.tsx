@@ -73,13 +73,13 @@ export function TimerPage() {
   }, [loadSettings, syncState, initEventListeners]);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
+    <section className="flex flex-col items-center gap-6">
       <h1 className="text-2xl font-bold tracking-tight">Pomo</h1>
       <IntervalTypeSelector />
       <TimerDisplay />
       <TimerControls />
       <PomodoroCount />
       <CompletionNotice />
-    </main>
+    </section>
   );
 }

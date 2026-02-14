@@ -9,6 +9,17 @@
 
 The plan is structured as **10 milestones** delivered through **~20 PRs**. Each milestone is a vertical slice that produces a working, testable increment. Milestones are sequential — each builds on the previous — but PRs within a milestone can often be developed in parallel.
 
+### Agent Documentation
+
+Every PR should update `CLAUDE.md` (and any other agent-facing documentation) to reflect changes introduced by that PR. This includes:
+- New or removed dependencies
+- Changes to project structure (new directories, renamed files)
+- New or changed build/run commands
+- New architectural patterns or conventions
+- Updated file paths or module organization
+
+Keeping `CLAUDE.md` current ensures that Claude Code (and other AI agents) can work effectively with the codebase at every point in time.
+
 ### Branching Strategy
 
 ```
@@ -44,6 +55,9 @@ main (protected, always releasable)
 - Install @dnd-kit/core, @dnd-kit/sortable
 - Install Chart.js, react-chartjs-2, react-day-picker
 - Configure `tsconfig.json` with strict mode and path aliases
+
+**Documentation:**
+- Update `CLAUDE.md` with actual project structure, installed dependencies, and confirmed build commands
 
 **Testing:**
 - `cargo tauri dev` launches a window displaying "Pomo" with a styled Button component

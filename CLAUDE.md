@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** M2 complete — SQLite database with schema v1 (migration runner, 4 tables, trigger, indexes, default settings) and TypeScript repository layer (typed wrappers, Zod validation, 40 frontend tests). M3 (Timer System) is next.
+**Current status:** M3 PR 3.1 complete — Rust timer state machine with Tauri commands, background tick task, and DB interval logging. M2 complete (SQLite schema v1, TypeScript repository layer). PR 3.2 (Timer frontend UI) is next.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -43,6 +43,8 @@ Linting (Rust):     Clippy (pedantic, via .cargo/config.toml)
 Database:           rusqlite 0.32 (bundled, migration runner + Rust tests)
                     tauri-plugin-sql 2 (SQLite, frontend SQL access)
                     @tauri-apps/plugin-sql (npm, TypeScript Database API)
+Async runtime:      tokio 1 (rt, time, sync, macros — for timer background task)
+Date/time:          chrono 0.4 (ISO 8601 timestamp generation in Rust)
 ```
 
 ### Not Yet Installed (Future Milestones)
@@ -80,7 +82,8 @@ pomo/
 ├── src-tauri/                  # Rust backend (Tauri)
 │   ├── src/
 │   │   ├── main.rs             # Windows entry point → pomo_lib::run()
-│   │   ├── lib.rs              # Tauri app builder, DB init in setup hook, smoke test
+│   │   ├── lib.rs              # Tauri app builder, DB init + timer state in setup hook, smoke test
+│   │   ├── timer.rs            # Timer state machine, Tauri commands, background tick task
 │   │   └── database.rs         # SQLite migration runner, schema v1, cloud-sync detection
 │   ├── .cargo/
 │   │   └── config.toml         # Clippy lint configuration (pedantic)
@@ -144,6 +147,8 @@ Two jobs: `lint-and-test` then `build`.
 - Tests use `tauri::test::mock_builder()` with `MockRuntime` instead of real WebView2.
 - The `test` feature is enabled on the `tauri` dependency.
 - Database tests use `rusqlite::Connection::open_in_memory()` with `PRAGMA foreign_keys = ON` for full schema validation (26 tests covering migrations, tables, indexes, trigger, settings, constraints, foreign keys, and cloud path detection).
+- Timer tests (32 tests) cover: state machine transitions, invalid transition rejection, work count tracking, long break reset, serde roundtrip, DB interval operations (insert/complete/cancel), and full lifecycle cycles.
+- Current Rust test count: 59 (26 database + 32 timer + 1 app build smoke).
 
 ### Frontend Testing Notes
 - Repository tests mock the `../db` module with `vi.mock()` to avoid Tauri IPC calls.
@@ -154,12 +159,20 @@ Two jobs: `lint-and-test` then `build`.
 
 ## Architecture Notes
 
-### Timer System
-- Timer runs as a Tokio async task in the Rust backend — never in the frontend (webview throttling breaks timers when minimized).
-- Uses wall-clock end time, not a countdown. Remaining time computed from `Instant::now()` on each tick (250ms interval).
-- Timer emits `timer-tick` and `timer-complete` events to the frontend via Tauri's event system.
+### Timer System (Implemented — PR 3.1)
+- Timer state machine in `src-tauri/src/timer.rs` with `TimerState` (Idle, Running, Paused) and `IntervalType` (Work, ShortBreak, LongBreak) enums.
+- Runs as a Tokio async task in the Rust backend — never in the frontend (webview throttling breaks timers when minimized).
+- Uses wall-clock end time (`Instant`), not a countdown. Remaining time computed from `Instant::now()` on each tick (250ms interval via `tokio::time::interval`).
+- Timer emits `timer-tick` and `timer-complete` events to the frontend via Tauri's event system (`app.emit()`).
 - States: `Idle → Running → Paused → Running → Idle` (on complete or cancel).
-- Timers and tasks are loosely coupled — association happens after a work interval completes via a checkbox dialog.
+- Tauri commands: `start_timer`, `pause_timer`, `resume_timer`, `cancel_timer`, `get_timer_state` — all registered in `lib.rs` invoke handler.
+- Commands are generic over `R: Runtime` so they work with both `Wry` (production) and `MockRuntime` (tests).
+- `AppState` (containing `Mutex<TimerInner>` + DB path) managed via `app.manage()` in the setup hook.
+- On start: creates `in_progress` interval row in `timer_intervals` table. On complete: updates to `completed` with `end_time` and `duration_seconds`. On cancel: updates to `cancelled`.
+- Tracks `completed_work_count`: incremented after work interval, reset after long break, unchanged after short break or cancel. Frontend uses this to suggest long breaks.
+- Background tick task spawned via `tauri::async_runtime::spawn()`, self-terminating when timer state is no longer Running.
+- `#[allow(clippy::needless_pass_by_value)]` on all Tauri commands — `tauri::State` must be passed by value per Tauri's API.
+- Timers and tasks are loosely coupled — association happens after a work interval completes via a checkbox dialog (PR 5.1).
 
 ### Database
 - SQLite with 4 tables: `user_settings`, `timer_intervals`, `tasks`, `task_interval_links`.

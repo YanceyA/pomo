@@ -185,7 +185,9 @@ main (protected, always releasable)
 
 **Spec coverage:** T-1, T-2, T-3, T-5, G-4
 
-### PR 3.1 — Rust timer state machine
+### PR 3.1 — Rust timer state machine ✅ COMPLETE
+
+**Status:** Done (2026-02-14). All testing gates passed (59 Rust tests total, 32 new timer tests).
 
 **Scope:**
 - Implement timer state machine in Rust:
@@ -198,11 +200,22 @@ main (protected, always releasable)
 - Track completed work count for long break trigger (reset after long break)
 - Tauri commands: `start_timer`, `pause_timer`, `resume_timer`, `cancel_timer`, `get_timer_state`
 
+**Notes:**
+- `tokio` 1 (rt, time, sync, macros) and `chrono` 0.4 added to Rust dependencies.
+- Commands are generic over `R: Runtime` to support both `Wry` (production) and `MockRuntime` (tests).
+- `AppState` (timer state + DB path) managed via Tauri's `app.manage()` in setup hook.
+- Background tick task spawned via `tauri::async_runtime::spawn()`, self-terminates when timer is not Running.
+- `#[allow(clippy::needless_pass_by_value)]` required on Tauri commands (framework requires `State` by value).
+
 **Testing:**
-- Rust tests: state transitions (idle→running, running→paused, paused→running, running→idle on cancel)
-- Rust tests: completion logs interval with correct start/end timestamps
-- Rust tests: long break triggers after N completed work intervals (configurable)
-- Rust tests: cancellation logs interval with `cancelled` status
+- Rust tests: state transitions (idle→running, running→paused, paused→running, running→idle on cancel) — **PASS**
+- Rust tests: invalid transitions rejected (double-start, pause-when-idle, resume-when-running, cancel-when-idle) — **PASS**
+- Rust tests: completion logs interval with correct start/end timestamps — **PASS**
+- Rust tests: long break triggers after N completed work intervals (configurable) — **PASS**
+- Rust tests: cancellation logs interval with `cancelled` status — **PASS**
+- Rust tests: work count tracking (increment on work, reset on long break, unchanged on short break/cancel) — **PASS**
+- Rust tests: serde roundtrip for TimerState and IntervalType enums — **PASS**
+- Clippy passes with `-D warnings` — **PASS**
 
 ### PR 3.2 — Timer frontend UI
 

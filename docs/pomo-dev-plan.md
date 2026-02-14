@@ -217,23 +217,42 @@ main (protected, always releasable)
 - Rust tests: serde roundtrip for TimerState and IntervalType enums — **PASS**
 - Clippy passes with `-D warnings` — **PASS**
 
-### PR 3.2 — Timer frontend UI
+### PR 3.2 — Timer frontend UI ✅ COMPLETE
+
+**Status:** Done (2026-02-14). All testing gates passed (78 Vitest tests total, 38 new timer frontend tests).
 
 **Scope:**
-- `TimerDisplay` component: large countdown (MM:SS), progress ring/bar
+- `TimerDisplay` component: large countdown (MM:SS), SVG progress ring
 - `TimerControls` component: Start, Pause/Resume, Cancel buttons (shadcn/ui)
-- Interval type selector: Work / Short Break / Long Break
+- `IntervalTypeSelector` component: Work / Short Break / Long Break radio group
+- `TimerPage` component: combines all timer components, pomodoro count, completion notice
+- Zustand timer store (`timerStore.ts`): state management, Tauri event subscriptions, command invocations
 - Subscribe to `timer-tick` events via `listen()`, update Zustand store
-- Subscribe to `timer-complete` events — show completion notification
+- Subscribe to `timer-complete` events — show completion notification with contextual messages
 - Display current interval type and pomodoro count (e.g., "Pomodoro 3 of 4")
 - Read work/break durations from settings (via `settingsRepository`)
 
+**Notes:**
+- `@testing-library/user-event` added for user interaction testing in component tests.
+- IntervalTypeSelector uses native `<input type="radio">` with visually-hidden inputs for Biome a11y compliance.
+- Progress ring uses SVG `stroke-dashoffset` animation, color-coded per interval type (primary/emerald/blue).
+- TimerPage initializes event listeners, loads settings, and syncs state on mount via `useEffect`.
+- All component and store tests mock `@tauri-apps/api/core`, `@tauri-apps/api/event`, and `@/lib/settingsRepository`.
+
 **Testing:**
-- Vitest + RTL: TimerDisplay renders formatted time from store
-- Vitest + RTL: Start button calls `start_timer` command with correct duration
-- Vitest + RTL: Pause/Resume toggles correctly
-- Vitest + RTL: Interval type selector changes the planned duration
-- Vitest: Zustand store updates correctly on mock `timer-tick` events
+- Vitest + RTL: TimerDisplay renders formatted time from store — **PASS**
+- Vitest + RTL: TimerDisplay shows correct duration for each interval type — **PASS**
+- Vitest + RTL: Start button calls `start_timer` command with correct duration — **PASS**
+- Vitest + RTL: Pause/Resume toggles correctly — **PASS**
+- Vitest + RTL: Cancel button calls `cancel_timer` — **PASS**
+- Vitest + RTL: Interval type selector changes the planned duration — **PASS**
+- Vitest + RTL: Selector disabled when timer is running — **PASS**
+- Vitest: Zustand store updates correctly on mock `timer-tick` events — **PASS**
+- Vitest: Store resets to idle and shows notice on `timer-complete` — **PASS**
+- Vitest: Store loads settings from repository — **PASS**
+- `npm run lint` passes — **PASS**
+- `npm run typecheck` passes — **PASS**
+- `npm run test` passes (78 tests) — **PASS**
 
 ### UAT — Milestone 3
 

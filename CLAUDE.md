@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** M3 PR 3.1 complete — Rust timer state machine with Tauri commands, background tick task, and DB interval logging. M2 complete (SQLite schema v1, TypeScript repository layer). PR 3.2 (Timer frontend UI) is next.
+**Current status:** M3 complete — Rust timer state machine (PR 3.1) and timer frontend UI (PR 3.2) with Zustand store, countdown display with progress ring, interval type selector, and completion notifications. M2 complete (SQLite schema v1, TypeScript repository layer). PR 4.1 (Task CRUD and subtasks) is next.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -33,7 +33,7 @@ Packaging:          NSIS installer via Tauri bundler
 ```
 
 ```
-Testing:            Vitest 4 + jsdom 28 + React Testing Library 16
+Testing:            Vitest 4 + jsdom 28 + React Testing Library 16 + @testing-library/user-event
 Coverage:           @vitest/coverage-v8
 Linting (TS/JS):    Biome 2
 Linting (Rust):     Clippy (pedantic, via .cargo/config.toml)
@@ -62,8 +62,16 @@ pomo/
 ├── docs/                       # Spec, tech decisions, dev plan
 ├── src/                        # React frontend
 │   ├── components/
-│   │   └── ui/
-│   │       └── button.tsx      # shadcn/ui Button component
+│   │   ├── ui/
+│   │   │   └── button.tsx      # shadcn/ui Button component
+│   │   ├── TimerPage.tsx       # Main timer page — combines display, controls, selector
+│   │   ├── TimerDisplay.tsx    # Large countdown (MM:SS) with SVG progress ring
+│   │   ├── TimerControls.tsx   # Start, Pause/Resume, Cancel buttons
+│   │   ├── IntervalTypeSelector.tsx  # Work / Short Break / Long Break radio group
+│   │   └── __tests__/          # Component tests (mock Tauri APIs via vi.mock)
+│   ├── stores/
+│   │   ├── timerStore.ts       # Zustand store for timer state, Tauri event subscriptions
+│   │   └── __tests__/          # Store tests
 │   ├── lib/
 │   │   ├── utils.ts            # cn() utility (clsx + tailwind-merge)
 │   │   ├── db.ts               # Database singleton (tauri-plugin-sql)
@@ -73,8 +81,8 @@ pomo/
 │   │   ├── tasksRepository.ts        # CRUD for tasks table (incl. clone, copyToDay)
 │   │   ├── taskIntervalLinksRepository.ts  # CRUD for task_interval_links table
 │   │   └── __tests__/          # Repository + schema tests (mock DB via vi.mock)
-│   ├── App.tsx                 # Root component — "Pomo" heading + Button
-│   ├── App.test.tsx            # Smoke test — app renders heading + button
+│   ├── App.tsx                 # Root component — renders TimerPage
+│   ├── App.test.tsx            # Smoke test — app renders heading + start button
 │   ├── test-setup.ts           # Vitest setup — jest-dom matchers
 │   ├── main.tsx                # React entry point
 │   ├── index.css               # Tailwind CSS v4 + shadcn/ui theme variables
@@ -155,7 +163,10 @@ Two jobs: `lint-and-test` then `build`.
 - Mock DB (`__tests__/db.mock.ts`) provides `MockDatabase` with `select`, `execute`, and `close` mock functions.
 - Each test file must call `vi.mock("../db", ...)` before importing the repository module (use dynamic `await import()`).
 - Zod schema tests validate both well-formed data acceptance and malformed data rejection.
-- Current test count: 40 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke).
+- Component and store tests mock `@tauri-apps/api/core` (invoke), `@tauri-apps/api/event` (listen), and `@/lib/settingsRepository` via `vi.mock()`.
+- Timer store tests verify state transitions, event handling, and Tauri command invocations.
+- Component tests use `@testing-library/user-event` for user interaction simulation.
+- Current test count: 78 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 15 timer store + 8 timer display + 8 timer controls + 7 interval type selector).
 
 ## Architecture Notes
 
@@ -173,6 +184,14 @@ Two jobs: `lint-and-test` then `build`.
 - Background tick task spawned via `tauri::async_runtime::spawn()`, self-terminating when timer state is no longer Running.
 - `#[allow(clippy::needless_pass_by_value)]` on all Tauri commands — `tauri::State` must be passed by value per Tauri's API.
 - Timers and tasks are loosely coupled — association happens after a work interval completes via a checkbox dialog (PR 5.1).
+
+### Timer Frontend (Implemented — PR 3.2)
+- **Zustand store** (`src/stores/timerStore.ts`): manages all timer state on the frontend. Subscribes to `timer-tick` and `timer-complete` Tauri events via `listen()`. Invokes Tauri commands (`start_timer`, `pause_timer`, `resume_timer`, `cancel_timer`, `get_timer_state`) via `invoke()`. Loads settings from `settingsRepository.getAll()`.
+- **TimerDisplay** (`src/components/TimerDisplay.tsx`): large MM:SS countdown with SVG progress ring. Color-coded by interval type (primary for work, emerald for short break, blue for long break). Shows planned duration when idle, remaining time when active.
+- **TimerControls** (`src/components/TimerControls.tsx`): Start button when idle; Pause/Resume + Cancel when active. Uses shadcn/ui Button with lucide-react icons.
+- **IntervalTypeSelector** (`src/components/IntervalTypeSelector.tsx`): radio group for Work/Short Break/Long Break. Disabled during active timer. Shows duration label under each option.
+- **TimerPage** (`src/components/TimerPage.tsx`): main page combining all timer components. Shows "Pomodoro X of Y" count. Displays completion notice with contextual messages (suggests long break after N work intervals). Initializes event listeners and loads settings on mount.
+- **Event flow**: TimerPage `useEffect` → `loadSettings()` + `syncState()` + `initEventListeners()`. Tick events update `remainingMs` in store. Complete events reset to idle and show completion notice.
 
 ### Database
 - SQLite with 4 tables: `user_settings`, `timer_intervals`, `tasks`, `task_interval_links`.
@@ -200,7 +219,8 @@ Two jobs: `lint-and-test` then `build`.
 - **Path aliases:** `@/` maps to `./src/` (configured in tsconfig.json and vite.config.ts).
 - **Tailwind CSS v4:** Uses `@tailwindcss/vite` plugin — no `tailwind.config.ts` file. Theme configured in `src/index.css` using `@theme` directives.
 - **shadcn/ui:** Components in `src/components/ui/`. Add new components with `npx shadcn@latest add <name>`. Config in `components.json`.
-- Zustand stores for timer state, task state, and settings.
+- **Zustand stores:** `src/stores/timerStore.ts` manages timer state. Stores use selectors (`useTimerStore((s) => s.field)`) for render optimization. Actions are async functions that call `invoke()` and update state from the `TimerStatus` response.
+- **Tauri event subscriptions:** Use `listen<PayloadType>("event-name", callback)` from `@tauri-apps/api/event`. Register in `useEffect`, call returned unlisten function on cleanup.
 - **Repository pattern:** Typed wrappers in `src/lib/*Repository.ts` around `tauri-plugin-sql` `execute`/`select` calls (no ORM). SQL uses `$1, $2, $3` positional parameters.
 - **Zod validation:** All DB query results validated via Zod schemas in `src/lib/schemas.ts`. Domain types (`Task`, `TimerInterval`, `Setting`, `TaskIntervalLink`) inferred from schemas.
 - **DB singleton:** `src/lib/db.ts` exports `getDb()` which lazily connects to `sqlite:pomo.db` via `Database.load()`.

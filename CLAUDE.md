@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** M1 PR 1.1 complete — project scaffolding with all dependencies installed. App shell renders "Pomo" with a styled shadcn/ui Button in a Tauri window.
+**Current status:** M1 complete — project scaffolding with all dependencies, testing, and linting infrastructure. App shell renders "Pomo" with a styled shadcn/ui Button in a Tauri window.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -32,6 +32,13 @@ UI utilities:       class-variance-authority, clsx, tailwind-merge, lucide-react
 Packaging:          NSIS installer via Tauri bundler
 ```
 
+```
+Testing:            Vitest 4 + jsdom 28 + React Testing Library 16
+Coverage:           @vitest/coverage-v8
+Linting (TS/JS):    Biome 2
+Linting (Rust):     Clippy (pedantic, via .cargo/config.toml)
+```
+
 ### Not Yet Installed (Future Milestones)
 ```
 Audio:              Web Audio API + rodio (Rust fallback) — M10
@@ -39,7 +46,6 @@ Database:           tauri-plugin-sql + rusqlite — M2
 Jira HTTP:          reqwest (Rust) — M7
 Credentials:        keyring crate — M7
 MCP:                @anthropic-ai/mcp-server-sqlite — M10
-Testing:            Vitest, RTL, Biome, Clippy — M1 PR 1.2
 ```
 
 ## Project Structure (Actual)
@@ -54,13 +60,17 @@ pomo/
 │   ├── lib/
 │   │   └── utils.ts            # cn() utility (clsx + tailwind-merge)
 │   ├── App.tsx                 # Root component — "Pomo" heading + Button
+│   ├── App.test.tsx            # Smoke test — app renders heading + button
+│   ├── test-setup.ts           # Vitest setup — jest-dom matchers
 │   ├── main.tsx                # React entry point
 │   ├── index.css               # Tailwind CSS v4 + shadcn/ui theme variables
 │   └── vite-env.d.ts           # Vite type declarations
 ├── src-tauri/                  # Rust backend (Tauri)
 │   ├── src/
 │   │   ├── main.rs             # Windows entry point → pomo_lib::run()
-│   │   └── lib.rs              # Tauri app builder
+│   │   └── lib.rs              # Tauri app builder + smoke test (mock runtime)
+│   ├── .cargo/
+│   │   └── config.toml         # Clippy lint configuration (pedantic)
 │   ├── capabilities/
 │   │   └── default.json        # Tauri capability permissions
 │   ├── icons/                  # App icons (various sizes)
@@ -68,7 +78,12 @@ pomo/
 │   ├── Cargo.toml              # Rust dependencies
 │   └── tauri.conf.json         # Tauri config (app name, window size, bundling)
 ├── public/                     # Static assets served by Vite
+├── .github/
+│   └── workflows/
+│       └── ci.yml              # CI pipeline: lint → typecheck → vitest → clippy → cargo test → build
 ├── CLAUDE.md                   # This file
+├── biome.json                  # Biome config (linter + formatter, Tailwind CSS support)
+├── vitest.config.ts            # Vitest config (jsdom, v8 coverage, path aliases)
 ├── components.json             # shadcn/ui configuration
 ├── tsconfig.json               # TypeScript config (strict, path aliases: @/ → src/)
 ├── tsconfig.node.json          # TypeScript config for Vite/Node files
@@ -96,15 +111,25 @@ cargo build                  # Full Rust build
 npm run tauri build          # Build NSIS installer
 ```
 
-### Not Yet Configured (M1 PR 1.2)
+### Testing & Linting
 ```bash
-npm run test                 # Vitest (not yet installed)
-npm run test:coverage        # Vitest + v8 coverage (not yet installed)
-npm run lint                 # Biome (not yet installed)
-npm run lint:fix             # Biome auto-fix (not yet installed)
-cargo test                   # Rust tests (not yet written)
-cargo clippy                 # Clippy (not yet configured)
+npm run test                 # Vitest (run once)
+npm run test:watch           # Vitest (watch mode)
+npm run test:coverage        # Vitest + v8 coverage
+npm run lint                 # Biome check (lint + format)
+npm run lint:fix             # Biome auto-fix (lint + format)
+cargo test                   # Rust tests (from src-tauri/)
+cargo clippy -- -D warnings  # Clippy (from src-tauri/)
 ```
+
+### CI Pipeline (.github/workflows/ci.yml)
+Two jobs: `lint-and-test` then `build`.
+- Biome lint → TypeScript typecheck → Vitest → Clippy → cargo test → cargo tauri build
+
+### Rust Testing Notes
+- Tauri's `common-controls-v6` default feature is disabled to allow `cargo test` on Windows (causes `STATUS_ENTRYPOINT_NOT_FOUND` in test binaries).
+- Tests use `tauri::test::mock_builder()` with `MockRuntime` instead of real WebView2.
+- The `test` feature is enabled on the `tauri` dependency.
 
 ## Architecture Notes
 

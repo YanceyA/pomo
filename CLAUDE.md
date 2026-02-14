@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** M4 complete — Task management with CRUD, subtasks, drag-and-drop, day scoping/navigation, edit/reopen/undo-delete. M3 complete (timer state machine + frontend). M2 complete (SQLite schema v1, TypeScript repository layer). M5 (Timer-Task Link) is next.
+**Current status:** M5 complete — Timer-task association (post-interval dialog, pomodoro count on task panels). M4 complete (task CRUD, subtasks, drag-and-drop, day scoping, edit/reopen/undo-delete). M3 complete (timer state machine + frontend). M2 complete (SQLite schema v1, TypeScript repository layer). M6 (Settings UI) is next.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -78,6 +78,7 @@ pomo/
 │   │   ├── TimerControls.tsx   # Start, Pause/Resume, Cancel buttons
 │   │   ├── IntervalTypeSelector.tsx  # Work / Short Break / Long Break radio group
 │   │   ├── DateNavigator.tsx   # Day picker with prev/next arrows, calendar popover, Today button
+│   │   ├── IntervalAssociationDialog.tsx  # Post-interval dialog to link tasks to completed pomodoro
 │   │   ├── TaskList.tsx        # Day's task list with DateNavigator, DndContext, drag-and-drop reordering
 │   │   ├── TaskPanel.tsx       # Sortable task card with drag handle, status, tag, subtasks, actions
 │   │   ├── TaskPanelOverlay.tsx # Simplified task card for drag overlay preview
@@ -174,7 +175,8 @@ Two jobs: `lint-and-test` then `build`.
 - Database tests use `rusqlite::Connection::open_in_memory()` with `PRAGMA foreign_keys = ON` for full schema validation (26 tests covering migrations, tables, indexes, trigger, settings, constraints, foreign keys, and cloud path detection).
 - Timer tests (32 tests) cover: state machine transitions, invalid transition rejection, work count tracking, long break reset, serde roundtrip, DB interval operations (insert/complete/cancel), and full lifecycle cycles.
 - Task tests (24 tests) cover: CRUD operations, subtask creation, parent completion constraints (pending subtasks block completion, abandoned subtasks allow completion), status transitions, cloning with deep subtask copy, reorder position updates, serde roundtrip, reopen from completed/abandoned, reopen-when-pending error, and delete guard for completed/abandoned tasks.
-- Current Rust test count: 83 (26 database + 32 timer + 24 task + 1 app build smoke).
+- Task-interval link tests (5 tests) cover: link creation, batch linking, INSERT OR IGNORE deduplication, interval count query with correct data, and day-scoped filtering.
+- Current Rust test count: 88 (26 database + 32 timer + 29 task + 1 app build smoke).
 
 ### Frontend Testing Notes
 - Repository tests mock the `../db` module with `vi.mock()` to avoid Tauri IPC calls.
@@ -187,7 +189,8 @@ Two jobs: `lint-and-test` then `build`.
 - Task store tests verify CRUD command invocations, date selection, dialog state management, edit dialog state, soft delete/undo flow, and reopen task.
 - Task component tests (TaskPanel, TaskCreateDialog, SubtaskItem) verify rendering of all fields, user interactions (checkbox, actions menu, form submit), correct command invocations, edit mode, toggle completion/reopen, delete guards for completed/abandoned, soft delete (no immediate invoke), inline subtask editing, and undo toast flow.
 - DateNavigator tests verify: "Today" rendering, formatted date for non-today, Today button visibility, past-day indicator, prev/next day navigation with store updates, calendar popover open/close, and calendar date selection.
-- Current test count: 165 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 15 timer store + 22 task store + 8 timer display + 8 timer controls + 7 interval type selector + 21 task panel + 14 task create dialog + 15 subtask item + 4 task list + 11 date navigator).
+- IntervalAssociationDialog tests (9 tests) cover: dialog visibility, empty task state, parent-only task filtering, checkbox toggle, confirm button disabled state, link command invocation, skip dismissal, and post-confirm reload.
+- Current test count: 182 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 19 timer store + 23 task store + 8 timer display + 8 timer controls + 7 interval type selector + 24 task panel + 14 task create dialog + 15 subtask item + 4 task list + 11 date navigator + 9 interval association dialog).
 
 ## Architecture Notes
 
@@ -215,7 +218,7 @@ Two jobs: `lint-and-test` then `build`.
 - **Event flow**: TimerPage `useEffect` → `loadSettings()` + `syncState()` + `initEventListeners()`. Tick events update `remainingMs` in store. Complete events reset to idle and show completion notice.
 
 ### Task Management (Implemented — PR 4.1)
-- Tauri commands in `src-tauri/src/tasks.rs`: `create_task`, `update_task`, `delete_task`, `complete_task`, `abandon_task`, `reopen_task`, `get_tasks_by_date`, `clone_task`, `reorder_tasks`.
+- Tauri commands in `src-tauri/src/tasks.rs`: `create_task`, `update_task`, `delete_task`, `complete_task`, `abandon_task`, `reopen_task`, `get_tasks_by_date`, `clone_task`, `reorder_tasks`, `link_tasks_to_interval`, `get_task_interval_counts`.
 - Commands open their own DB connection with `PRAGMA foreign_keys = ON` (not sharing the timer's connection).
 - `complete_task` validates no pending subtasks exist before allowing parent completion — returns error if blocked.
 - `clone_task` deep copies the task and all its subtasks with fresh IDs and `pending` status.
@@ -231,6 +234,18 @@ Two jobs: `lint-and-test` then `build`.
 - Delete guard: completed/abandoned tasks cannot be deleted (backend rejects, UI hides delete button). Must reopen first.
 - Soft delete with undo: delete removes task from UI immediately, shows Sonner toast with "Undo" button (10s timeout). Actual backend delete fires after timeout. Undo cancels the timeout and reloads tasks.
 - App layout updated: `App.tsx` renders `<TimerPage />` + `<TaskList />` in a vertical stack.
+
+### Timer-Task Association (Implemented — PR 5.1)
+- After a **work** interval completes, the `timer-complete` event triggers an association dialog in the frontend.
+- **Break** intervals (short/long) skip the dialog entirely — `showAssociationDialog` stays false.
+- The `IntervalAssociationDialog` component shows all parent tasks for the current day with checkboxes. User selects which tasks they worked on during the pomodoro.
+- On confirm: calls `link_tasks_to_interval` Rust command which batch-inserts into `task_interval_links` using `INSERT OR IGNORE` (UNIQUE constraint prevents duplicates).
+- On skip: dialog dismisses without any linking.
+- **Timer store** (`timerStore.ts`) manages dialog state: `showAssociationDialog`, `lastCompletedIntervalId`, `showAssociation()`, `dismissAssociationDialog()`.
+- **Task store** (`taskStore.ts`) loads interval counts alongside tasks via `get_task_interval_counts` Rust command (joined query on `task_interval_links`). Stored as `intervalCounts: Record<number, number>`.
+- **TaskPanel** displays linked pomodoro count (e.g., "2 pomodoros") with a clock icon when `intervalCounts[task.id] > 0`.
+- Rust commands: `link_tasks_to_interval(task_ids, interval_id)`, `get_task_interval_counts(day_date)` — registered in `lib.rs`.
+- Tasks remain independently completable — association does not auto-complete tasks (G-4, TK-12).
 
 ### Database
 - SQLite with 4 tables: `user_settings`, `timer_intervals`, `tasks`, `task_interval_links`.

@@ -2,6 +2,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
   Check,
+  Clock,
   Copy,
   GripVertical,
   ListPlus,
@@ -33,6 +34,7 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
   const cloneTask = useTaskStore((s) => s.cloneTask);
   const openCreateDialog = useTaskStore((s) => s.openCreateDialog);
   const openEditDialog = useTaskStore((s) => s.openEditDialog);
+  const pomodoroCount = useTaskStore((s) => s.intervalCounts[task.id] ?? 0);
   const [showActions, setShowActions] = useState(false);
 
   const {
@@ -127,6 +129,15 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
               data-testid={`task-jira-${task.id}`}
             >
               {task.jira_key}
+            </span>
+          )}
+          {pomodoroCount > 0 && (
+            <span
+              className="flex items-center gap-1 text-xs text-muted-foreground"
+              data-testid={`task-pomodoro-count-${task.id}`}
+            >
+              <Clock className="size-3" />
+              {pomodoroCount} {pomodoroCount === 1 ? "pomodoro" : "pomodoros"}
             </span>
           )}
           {/* Subtasks */}

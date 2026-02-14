@@ -19,6 +19,11 @@ interface TaskFromBackend {
   updated_at: string;
 }
 
+interface TaskIntervalCountFromBackend {
+  task_id: number;
+  count: number;
+}
+
 interface PendingDelete {
   taskId: number;
   timeoutId: number;
@@ -31,6 +36,9 @@ export interface TaskStore {
   tasks: Task[];
   selectedDate: string;
   isLoading: boolean;
+
+  // Interval link counts (task_id → count)
+  intervalCounts: Record<number, number>;
 
   // Task creation dialog
   showCreateDialog: boolean;
@@ -102,6 +110,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   selectedDate: todayString(),
   isLoading: false,
+  intervalCounts: {},
   showCreateDialog: false,
   createParentId: null,
   showEditDialog: false,
@@ -112,10 +121,21 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const dayDate = date ?? get().selectedDate;
     set({ isLoading: true });
     try {
-      const tasks = await invoke<TaskFromBackend[]>("get_tasks_by_date", {
-        dayDate,
+      const [tasks, counts] = await Promise.all([
+        invoke<TaskFromBackend[]>("get_tasks_by_date", { dayDate }),
+        invoke<TaskIntervalCountFromBackend[]>("get_task_interval_counts", {
+          dayDate,
+        }),
+      ]);
+      const intervalCounts: Record<number, number> = {};
+      for (const c of counts) {
+        intervalCounts[c.task_id] = c.count;
+      }
+      set({
+        tasks: tasks.map(backendToTask),
+        intervalCounts,
+        isLoading: false,
       });
-      set({ tasks: tasks.map(backendToTask), isLoading: false });
     } catch {
       set({ isLoading: false });
     }

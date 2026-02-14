@@ -48,6 +48,7 @@ describe("taskStore", () => {
       showEditDialog: false,
       editTask: null,
       pendingDelete: null,
+      intervalCounts: {},
     });
   });
 
@@ -56,27 +57,49 @@ describe("taskStore", () => {
   });
 
   describe("loadTasks", () => {
-    it("fetches tasks for the selected date", async () => {
+    it("fetches tasks and interval counts for the selected date", async () => {
       const tasks = [
         makeBackendTask(),
         makeBackendTask({ id: 2, position: 1 }),
       ];
-      mockInvoke.mockResolvedValue(tasks);
+      mockInvoke
+        .mockResolvedValueOnce(tasks) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
 
       await useTaskStore.getState().loadTasks();
 
       expect(mockInvoke).toHaveBeenCalledWith("get_tasks_by_date", {
         dayDate: "2026-02-14",
       });
+      expect(mockInvoke).toHaveBeenCalledWith("get_task_interval_counts", {
+        dayDate: "2026-02-14",
+      });
       expect(useTaskStore.getState().tasks).toHaveLength(2);
     });
 
     it("sets isLoading to false after fetch completes", async () => {
-      mockInvoke.mockResolvedValue([]);
+      mockInvoke
+        .mockResolvedValueOnce([]) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
 
       await useTaskStore.getState().loadTasks();
 
       expect(useTaskStore.getState().isLoading).toBe(false);
+    });
+
+    it("stores interval counts from backend", async () => {
+      mockInvoke
+        .mockResolvedValueOnce([makeBackendTask()]) // get_tasks_by_date
+        .mockResolvedValueOnce([
+          { task_id: 1, count: 3 },
+          { task_id: 2, count: 1 },
+        ]); // get_task_interval_counts
+
+      await useTaskStore.getState().loadTasks();
+
+      const counts = useTaskStore.getState().intervalCounts;
+      expect(counts[1]).toBe(3);
+      expect(counts[2]).toBe(1);
     });
   });
 
@@ -84,7 +107,8 @@ describe("taskStore", () => {
     it("calls create_task and reloads", async () => {
       mockInvoke
         .mockResolvedValueOnce(makeBackendTask()) // create_task
-        .mockResolvedValueOnce([makeBackendTask()]); // get_tasks_by_date
+        .mockResolvedValueOnce([makeBackendTask()]) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
 
       await useTaskStore.getState().createTask({
         title: "New task",
@@ -104,7 +128,8 @@ describe("taskStore", () => {
     it("passes parentTaskId for subtasks", async () => {
       mockInvoke
         .mockResolvedValueOnce(makeBackendTask({ id: 2, parent_task_id: 1 }))
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([]) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
 
       await useTaskStore.getState().createTask({
         title: "Subtask",
@@ -125,7 +150,8 @@ describe("taskStore", () => {
     it("calls delete_task and reloads", async () => {
       mockInvoke
         .mockResolvedValueOnce(undefined) // delete_task
-        .mockResolvedValueOnce([]); // get_tasks_by_date
+        .mockResolvedValueOnce([]) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
 
       await useTaskStore.getState().deleteTask(5);
 
@@ -137,7 +163,8 @@ describe("taskStore", () => {
     it("calls complete_task and reloads", async () => {
       mockInvoke
         .mockResolvedValueOnce(makeBackendTask({ status: "completed" }))
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([]) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
 
       await useTaskStore.getState().completeTask(1);
 
@@ -149,7 +176,8 @@ describe("taskStore", () => {
     it("calls abandon_task and reloads", async () => {
       mockInvoke
         .mockResolvedValueOnce(makeBackendTask({ status: "abandoned" }))
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([]) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
 
       await useTaskStore.getState().abandonTask(1);
 
@@ -161,7 +189,8 @@ describe("taskStore", () => {
     it("calls reopen_task and reloads", async () => {
       mockInvoke
         .mockResolvedValueOnce(makeBackendTask({ status: "pending" }))
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([]) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
 
       await useTaskStore.getState().reopenTask(1);
 
@@ -173,7 +202,8 @@ describe("taskStore", () => {
     it("calls clone_task and reloads", async () => {
       mockInvoke
         .mockResolvedValueOnce(makeBackendTask({ id: 2 }))
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([]) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
 
       await useTaskStore.getState().cloneTask(1);
 
@@ -185,7 +215,8 @@ describe("taskStore", () => {
     it("calls reorder_tasks with task IDs", async () => {
       mockInvoke
         .mockResolvedValueOnce(undefined) // reorder_tasks
-        .mockResolvedValueOnce([]); // get_tasks_by_date
+        .mockResolvedValueOnce([]) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
 
       await useTaskStore.getState().reorderTasks([3, 1, 2]);
 
@@ -199,7 +230,8 @@ describe("taskStore", () => {
     it("calls update_task and reloads", async () => {
       mockInvoke
         .mockResolvedValueOnce(makeBackendTask({ title: "Updated" }))
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([]) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
 
       await useTaskStore.getState().updateTask(1, { title: "Updated" });
 
@@ -285,7 +317,10 @@ describe("taskStore", () => {
     });
 
     it("calls delete_task after timeout", async () => {
-      mockInvoke.mockResolvedValue([]);
+      mockInvoke
+        .mockResolvedValueOnce(undefined) // delete_task
+        .mockResolvedValueOnce([]) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
       useTaskStore.setState({ tasks: [makeBackendTask()] as Task[] });
 
       useTaskStore.getState().softDeleteTask(1);
@@ -299,7 +334,9 @@ describe("taskStore", () => {
 
   describe("undoDelete", () => {
     it("cancels pending delete and reloads tasks", async () => {
-      mockInvoke.mockResolvedValue([makeBackendTask()]);
+      mockInvoke
+        .mockResolvedValueOnce([makeBackendTask()]) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
       useTaskStore.setState({ tasks: [makeBackendTask()] as Task[] });
 
       useTaskStore.getState().softDeleteTask(1);
@@ -317,7 +354,9 @@ describe("taskStore", () => {
 
   describe("setSelectedDate", () => {
     it("changes date and reloads tasks", async () => {
-      mockInvoke.mockResolvedValue([]);
+      mockInvoke
+        .mockResolvedValueOnce([]) // get_tasks_by_date
+        .mockResolvedValueOnce([]); // get_task_interval_counts
 
       await useTaskStore.getState().setSelectedDate("2026-02-15");
 

@@ -376,6 +376,66 @@ pub fn reorder_tasks(
     Ok(())
 }
 
+// ── Task-Interval Link types ────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskIntervalCount {
+    pub task_id: i64,
+    pub count: i64,
+}
+
+// ── Task-Interval Link commands ─────────────────────────────
+
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn link_tasks_to_interval(
+    state: tauri::State<'_, AppState>,
+    task_ids: Vec<i64>,
+    interval_id: i64,
+) -> Result<(), String> {
+    let conn = open_db(&state.db_path)?;
+    for task_id in task_ids {
+        conn.execute(
+            "INSERT OR IGNORE INTO task_interval_links (task_id, interval_id) VALUES (?1, ?2)",
+            rusqlite::params![task_id, interval_id],
+        )
+        .map_err(|e| format!("Failed to link task {task_id} to interval {interval_id}: {e}"))?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn get_task_interval_counts(
+    state: tauri::State<'_, AppState>,
+    day_date: String,
+) -> Result<Vec<TaskIntervalCount>, String> {
+    let conn = open_db(&state.db_path)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.id, COUNT(til.id) as link_count \
+             FROM tasks t \
+             LEFT JOIN task_interval_links til ON til.task_id = t.id \
+             WHERE t.day_date = ?1 AND t.parent_task_id IS NULL \
+             GROUP BY t.id \
+             HAVING link_count > 0",
+        )
+        .map_err(|e| format!("Failed to prepare interval count query: {e}"))?;
+
+    let counts = stmt
+        .query_map([&day_date], |row| {
+            Ok(TaskIntervalCount {
+                task_id: row.get(0)?,
+                count: row.get(1)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query interval counts: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to read interval counts: {e}"))?;
+
+    Ok(counts)
+}
+
 // ── Tests ───────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -836,5 +896,188 @@ mod tests {
             .unwrap();
         assert_eq!(status, "abandoned");
         // The delete_task command would reject this
+    }
+
+    // ── Task-Interval Link tests ────────────────────────────
+
+    fn insert_interval(conn: &Connection) -> i64 {
+        conn.execute(
+            "INSERT INTO timer_intervals (interval_type, start_time, planned_duration_seconds, status) \
+             VALUES ('work', '2026-02-14T09:00:00Z', 1500, 'completed')",
+            [],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn link_task_to_interval() {
+        let conn = setup_test_db();
+        let task_id = insert_task(&conn, "Task", "2026-02-14", 0);
+        let interval_id = insert_interval(&conn);
+
+        conn.execute(
+            "INSERT INTO task_interval_links (task_id, interval_id) VALUES (?1, ?2)",
+            [task_id, interval_id],
+        )
+        .unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM task_interval_links WHERE task_id = ?1 AND interval_id = ?2",
+                [task_id, interval_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn link_multiple_tasks_to_interval() {
+        let conn = setup_test_db();
+        let task1 = insert_task(&conn, "Task 1", "2026-02-14", 0);
+        let task2 = insert_task(&conn, "Task 2", "2026-02-14", 1);
+        let interval_id = insert_interval(&conn);
+
+        for task_id in [task1, task2] {
+            conn.execute(
+                "INSERT INTO task_interval_links (task_id, interval_id) VALUES (?1, ?2)",
+                [task_id, interval_id],
+            )
+            .unwrap();
+        }
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM task_interval_links WHERE interval_id = ?1",
+                [interval_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn duplicate_link_is_ignored_with_or_ignore() {
+        let conn = setup_test_db();
+        let task_id = insert_task(&conn, "Task", "2026-02-14", 0);
+        let interval_id = insert_interval(&conn);
+
+        conn.execute(
+            "INSERT INTO task_interval_links (task_id, interval_id) VALUES (?1, ?2)",
+            [task_id, interval_id],
+        )
+        .unwrap();
+
+        // INSERT OR IGNORE should not error on duplicate
+        conn.execute(
+            "INSERT OR IGNORE INTO task_interval_links (task_id, interval_id) VALUES (?1, ?2)",
+            [task_id, interval_id],
+        )
+        .unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM task_interval_links WHERE task_id = ?1",
+                [task_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn interval_counts_returns_correct_data() {
+        let conn = setup_test_db();
+        let task1 = insert_task(&conn, "Task 1", "2026-02-14", 0);
+        let task2 = insert_task(&conn, "Task 2", "2026-02-14", 1);
+        let _task3 = insert_task(&conn, "Task 3", "2026-02-14", 2);
+
+        let interval1 = insert_interval(&conn);
+        let interval2 = insert_interval(&conn);
+
+        // Task 1 linked to both intervals
+        conn.execute(
+            "INSERT INTO task_interval_links (task_id, interval_id) VALUES (?1, ?2)",
+            [task1, interval1],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO task_interval_links (task_id, interval_id) VALUES (?1, ?2)",
+            [task1, interval2],
+        )
+        .unwrap();
+
+        // Task 2 linked to one interval
+        conn.execute(
+            "INSERT INTO task_interval_links (task_id, interval_id) VALUES (?1, ?2)",
+            [task2, interval1],
+        )
+        .unwrap();
+
+        // Task 3 has no links — should not appear
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT t.id, COUNT(til.id) as link_count \
+                 FROM tasks t \
+                 LEFT JOIN task_interval_links til ON til.task_id = t.id \
+                 WHERE t.day_date = '2026-02-14' AND t.parent_task_id IS NULL \
+                 GROUP BY t.id \
+                 HAVING link_count > 0",
+            )
+            .unwrap();
+
+        let counts: Vec<(i64, i64)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(counts.len(), 2);
+
+        let task1_count = counts.iter().find(|(id, _)| *id == task1).map(|(_, c)| *c);
+        let task2_count = counts.iter().find(|(id, _)| *id == task2).map(|(_, c)| *c);
+        assert_eq!(task1_count, Some(2));
+        assert_eq!(task2_count, Some(1));
+    }
+
+    #[test]
+    fn interval_counts_excludes_other_days() {
+        let conn = setup_test_db();
+        let task1 = insert_task(&conn, "Today", "2026-02-14", 0);
+        let task2 = insert_task(&conn, "Tomorrow", "2026-02-15", 0);
+        let interval_id = insert_interval(&conn);
+
+        conn.execute(
+            "INSERT INTO task_interval_links (task_id, interval_id) VALUES (?1, ?2)",
+            [task1, interval_id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO task_interval_links (task_id, interval_id) VALUES (?1, ?2)",
+            [task2, interval_id],
+        )
+        .unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT t.id, COUNT(til.id) as link_count \
+                 FROM tasks t \
+                 LEFT JOIN task_interval_links til ON til.task_id = t.id \
+                 WHERE t.day_date = '2026-02-14' AND t.parent_task_id IS NULL \
+                 GROUP BY t.id \
+                 HAVING link_count > 0",
+            )
+            .unwrap();
+
+        let counts: Vec<(i64, i64)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(counts.len(), 1);
+        assert_eq!(counts[0].0, task1);
     }
 }

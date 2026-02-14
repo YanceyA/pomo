@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { IntervalAssociationDialog } from "@/components/IntervalAssociationDialog";
 import { IntervalTypeSelector } from "@/components/IntervalTypeSelector";
 import { TimerControls } from "@/components/TimerControls";
 import { TimerDisplay } from "@/components/TimerDisplay";
@@ -80,6 +81,7 @@ export function TimerPage() {
       <TimerControls />
       <PomodoroCount />
       <CompletionNotice />
+      <IntervalAssociationDialog />
     </section>
   );
 }

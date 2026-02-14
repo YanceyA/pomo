@@ -67,6 +67,7 @@ describe("TaskPanel", () => {
       showEditDialog: false,
       editTask: null,
       pendingDelete: null,
+      intervalCounts: {},
     });
   });
 
@@ -252,5 +253,29 @@ describe("TaskPanel", () => {
     await user.click(screen.getByTestId("task-actions-toggle-1"));
     expect(screen.queryByTestId("task-abandon-1")).not.toBeInTheDocument();
     expect(screen.queryByTestId("task-complete-1")).not.toBeInTheDocument();
+  });
+
+  it("shows pomodoro count when task has linked intervals", () => {
+    useTaskStore.setState({ intervalCounts: { 1: 3 } });
+    renderWithDnd(makeTask());
+    expect(screen.getByTestId("task-pomodoro-count-1")).toHaveTextContent(
+      "3 pomodoros",
+    );
+  });
+
+  it("shows singular pomodoro for count of 1", () => {
+    useTaskStore.setState({ intervalCounts: { 1: 1 } });
+    renderWithDnd(makeTask());
+    expect(screen.getByTestId("task-pomodoro-count-1")).toHaveTextContent(
+      "1 pomodoro",
+    );
+  });
+
+  it("does not show pomodoro count when task has no linked intervals", () => {
+    useTaskStore.setState({ intervalCounts: {} });
+    renderWithDnd(makeTask());
+    expect(
+      screen.queryByTestId("task-pomodoro-count-1"),
+    ).not.toBeInTheDocument();
   });
 });

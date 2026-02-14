@@ -49,6 +49,10 @@ export interface TimerStore {
   showCompletionNotice: boolean;
   completedIntervalType: IntervalType | null;
 
+  // Association dialog (work interval only)
+  showAssociationDialog: boolean;
+  lastCompletedIntervalId: number | null;
+
   // Selected type for next interval (when idle)
   selectedType: IntervalType;
 
@@ -59,6 +63,8 @@ export interface TimerStore {
   cancelTimer: () => Promise<void>;
   setSelectedType: (type: IntervalType) => void;
   dismissCompletionNotice: () => void;
+  showAssociation: (intervalId: number) => void;
+  dismissAssociationDialog: () => void;
   loadSettings: () => Promise<void>;
   syncState: () => Promise<void>;
   initEventListeners: () => Promise<() => void>;
@@ -116,6 +122,10 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
   showCompletionNotice: false,
   completedIntervalType: null,
 
+  // Association dialog
+  showAssociationDialog: false,
+  lastCompletedIntervalId: null,
+
   // Selected type
   selectedType: "work",
 
@@ -153,6 +163,14 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
     set({ showCompletionNotice: false, completedIntervalType: null });
   },
 
+  showAssociation: (intervalId: number) => {
+    set({ showAssociationDialog: true, lastCompletedIntervalId: intervalId });
+  },
+
+  dismissAssociationDialog: () => {
+    set({ showAssociationDialog: false, lastCompletedIntervalId: null });
+  },
+
   loadSettings: async () => {
     const settings = await settingsRepository.getAll();
     const map = new Map(settings.map((s) => [s.key, s.value]));
@@ -185,6 +203,7 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
     const unlistenComplete = await listen<TimerCompletePayload>(
       "timer-complete",
       (event) => {
+        const isWork = event.payload.interval_type === "work";
         set({
           state: "idle",
           remainingMs: 0,
@@ -192,6 +211,9 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
           completedWorkCount: event.payload.completed_work_count,
           showCompletionNotice: true,
           completedIntervalType: event.payload.interval_type,
+          // Show association dialog only for work intervals
+          showAssociationDialog: isWork,
+          lastCompletedIntervalId: isWork ? event.payload.interval_id : null,
         });
       },
     );

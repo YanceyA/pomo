@@ -50,6 +50,8 @@ describe("timerStore", () => {
       longBreakFrequency: 4,
       showCompletionNotice: false,
       completedIntervalType: null,
+      showAssociationDialog: false,
+      lastCompletedIntervalId: null,
       selectedType: "work",
     });
   });
@@ -287,6 +289,42 @@ describe("timerStore", () => {
       expect(state.completedIntervalType).toBe("work");
     });
 
+    it("shows association dialog on work interval complete", async () => {
+      useTimerStore.setState({ state: "running" });
+      await useTimerStore.getState().initEventListeners();
+
+      const completeCallback = listeners.get("timer-complete");
+      completeCallback?.({
+        payload: {
+          interval_id: 42,
+          interval_type: "work",
+          completed_work_count: 1,
+        },
+      });
+
+      const state = useTimerStore.getState();
+      expect(state.showAssociationDialog).toBe(true);
+      expect(state.lastCompletedIntervalId).toBe(42);
+    });
+
+    it("does not show association dialog on break interval complete", async () => {
+      useTimerStore.setState({ state: "running" });
+      await useTimerStore.getState().initEventListeners();
+
+      const completeCallback = listeners.get("timer-complete");
+      completeCallback?.({
+        payload: {
+          interval_id: 5,
+          interval_type: "short_break",
+          completed_work_count: 1,
+        },
+      });
+
+      const state = useTimerStore.getState();
+      expect(state.showAssociationDialog).toBe(false);
+      expect(state.lastCompletedIntervalId).toBeNull();
+    });
+
     it("returns unlisten function", async () => {
       const unlisten = await useTimerStore.getState().initEventListeners();
 
@@ -307,6 +345,29 @@ describe("timerStore", () => {
 
       expect(useTimerStore.getState().showCompletionNotice).toBe(false);
       expect(useTimerStore.getState().completedIntervalType).toBeNull();
+    });
+  });
+
+  describe("association dialog", () => {
+    it("showAssociation opens dialog with interval ID", () => {
+      useTimerStore.getState().showAssociation(99);
+
+      const state = useTimerStore.getState();
+      expect(state.showAssociationDialog).toBe(true);
+      expect(state.lastCompletedIntervalId).toBe(99);
+    });
+
+    it("dismissAssociationDialog clears dialog state", () => {
+      useTimerStore.setState({
+        showAssociationDialog: true,
+        lastCompletedIntervalId: 99,
+      });
+
+      useTimerStore.getState().dismissAssociationDialog();
+
+      const state = useTimerStore.getState();
+      expect(state.showAssociationDialog).toBe(false);
+      expect(state.lastCompletedIntervalId).toBeNull();
     });
   });
 });

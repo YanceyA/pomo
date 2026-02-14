@@ -24,6 +24,8 @@ pub fn run() {
             tasks::get_tasks_by_date,
             tasks::clone_task,
             tasks::reorder_tasks,
+            tasks::link_tasks_to_interval,
+            tasks::get_task_interval_counts,
         ])
         .setup(|app| {
             let app_data_dir = app
@@ -63,6 +65,8 @@ mod tests {
                 crate::tasks::get_tasks_by_date,
                 crate::tasks::clone_task,
                 crate::tasks::reorder_tasks,
+                crate::tasks::link_tasks_to_interval,
+                crate::tasks::get_task_interval_counts,
             ])
             .build(tauri::test::mock_context(noop_assets()))
             .expect("failed to build mock Tauri app");

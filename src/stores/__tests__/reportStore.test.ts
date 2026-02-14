@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DailySummary, WeeklySummary } from "@/lib/schemas";
+import type {
+  DailySummary,
+  MonthlySummary,
+  WeeklySummary,
+} from "@/lib/schemas";
 
 const mockInvoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
@@ -82,6 +86,8 @@ describe("reportStore", () => {
       isDailyLoading: false,
       weeklySummary: null,
       isWeeklyLoading: false,
+      monthlySummary: null,
+      isMonthlyLoading: false,
     });
   });
 
@@ -202,5 +208,106 @@ describe("reportStore", () => {
     await useReportStore.getState().loadWeeklySummary();
 
     expect(useReportStore.getState().isWeeklyLoading).toBe(false);
+  });
+
+  // ── Monthly summary ───────────────────────────────────
+
+  it("loadMonthlySummary calls get_monthly_summary with correct month start", async () => {
+    const summary: MonthlySummary = {
+      month_start: "2026-02-01",
+      month_end: "2026-02-28",
+      weekly_stats: [],
+      total_pomodoros: 10,
+      total_focus_minutes: 250,
+      total_tasks_completed: 5,
+    };
+    mockInvoke.mockResolvedValueOnce(summary);
+    useReportStore.setState({ monthStart: "2026-02-01" });
+
+    await useReportStore.getState().loadMonthlySummary();
+
+    expect(mockInvoke).toHaveBeenCalledWith("get_monthly_summary", {
+      monthStart: "2026-02-01",
+    });
+    expect(useReportStore.getState().monthlySummary).toEqual(summary);
+    expect(useReportStore.getState().isMonthlyLoading).toBe(false);
+  });
+
+  it("loadMonthlySummary accepts explicit month start parameter", async () => {
+    const summary: MonthlySummary = {
+      month_start: "2026-01-01",
+      month_end: "2026-01-31",
+      weekly_stats: [],
+      total_pomodoros: 0,
+      total_focus_minutes: 0,
+      total_tasks_completed: 0,
+    };
+    mockInvoke.mockResolvedValueOnce(summary);
+
+    await useReportStore.getState().loadMonthlySummary("2026-01-01");
+
+    expect(mockInvoke).toHaveBeenCalledWith("get_monthly_summary", {
+      monthStart: "2026-01-01",
+    });
+    expect(useReportStore.getState().monthStart).toBe("2026-01-01");
+  });
+
+  it("setMonthStart updates month and loads summary", async () => {
+    const summary: MonthlySummary = {
+      month_start: "2026-03-01",
+      month_end: "2026-03-31",
+      weekly_stats: [],
+      total_pomodoros: 0,
+      total_focus_minutes: 0,
+      total_tasks_completed: 0,
+    };
+    mockInvoke.mockResolvedValueOnce(summary);
+
+    await useReportStore.getState().setMonthStart("2026-03-01");
+
+    expect(useReportStore.getState().monthStart).toBe("2026-03-01");
+    expect(mockInvoke).toHaveBeenCalledWith("get_monthly_summary", {
+      monthStart: "2026-03-01",
+    });
+  });
+
+  it("prevMonth moves back 1 month", async () => {
+    useReportStore.setState({ monthStart: "2026-02-01" });
+    mockInvoke.mockResolvedValueOnce({
+      month_start: "2026-01-01",
+      month_end: "2026-01-31",
+      weekly_stats: [],
+      total_pomodoros: 0,
+      total_focus_minutes: 0,
+      total_tasks_completed: 0,
+    });
+
+    await useReportStore.getState().prevMonth();
+
+    expect(useReportStore.getState().monthStart).toBe("2026-01-01");
+  });
+
+  it("nextMonth moves forward 1 month", async () => {
+    useReportStore.setState({ monthStart: "2026-02-01" });
+    mockInvoke.mockResolvedValueOnce({
+      month_start: "2026-03-01",
+      month_end: "2026-03-31",
+      weekly_stats: [],
+      total_pomodoros: 0,
+      total_focus_minutes: 0,
+      total_tasks_completed: 0,
+    });
+
+    await useReportStore.getState().nextMonth();
+
+    expect(useReportStore.getState().monthStart).toBe("2026-03-01");
+  });
+
+  it("loadMonthlySummary sets isMonthlyLoading to false on error", async () => {
+    mockInvoke.mockRejectedValueOnce(new Error("DB error"));
+
+    await useReportStore.getState().loadMonthlySummary();
+
+    expect(useReportStore.getState().isMonthlyLoading).toBe(false);
   });
 });

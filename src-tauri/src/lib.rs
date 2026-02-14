@@ -32,6 +32,7 @@ pub fn run() {
             tasks::get_task_origin_dates,
             reports::get_daily_summary,
             reports::get_weekly_summary,
+            reports::get_monthly_summary,
         ])
         .setup(|app| {
             let app_data_dir = app
@@ -78,6 +79,7 @@ mod tests {
                 crate::tasks::get_task_origin_dates,
                 crate::reports::get_daily_summary,
                 crate::reports::get_weekly_summary,
+                crate::reports::get_monthly_summary,
             ])
             .build(tauri::test::mock_context(noop_assets()))
             .expect("failed to build mock Tauri app");

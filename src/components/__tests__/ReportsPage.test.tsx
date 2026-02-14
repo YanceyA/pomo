@@ -7,10 +7,13 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => mockInvoke(...args),
 }));
 
+vi.mock("chartjs-adapter-date-fns", () => ({}));
+
 vi.mock("chart.js", () => ({
   Chart: { register: vi.fn() },
   CategoryScale: {},
   LinearScale: {},
+  TimeScale: {},
   BarElement: {},
   Tooltip: {},
   Legend: {},
@@ -43,12 +46,22 @@ const weeklyData = {
   task_groups: [],
 };
 
+const monthlyData = {
+  month_start: "2026-02-01",
+  month_end: "2026-02-28",
+  weekly_stats: [],
+  total_pomodoros: 0,
+  total_focus_minutes: 0,
+  total_tasks_completed: 0,
+};
+
 describe("ReportsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "get_daily_summary") return Promise.resolve(dailyData);
       if (cmd === "get_weekly_summary") return Promise.resolve(weeklyData);
+      if (cmd === "get_monthly_summary") return Promise.resolve(monthlyData);
       return Promise.resolve(null);
     });
     useReportStore.setState({
@@ -57,6 +70,8 @@ describe("ReportsPage", () => {
       isDailyLoading: false,
       weeklySummary: null,
       isWeeklyLoading: false,
+      monthlySummary: null,
+      isMonthlyLoading: false,
     });
   });
 
@@ -65,10 +80,11 @@ describe("ReportsPage", () => {
     expect(screen.getByText("Reports")).toBeInTheDocument();
   });
 
-  it("renders Daily and Weekly tabs", () => {
+  it("renders Daily, Weekly, and Monthly tabs", () => {
     render(<ReportsPage />);
     expect(screen.getByRole("tab", { name: "Daily" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Weekly" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Monthly" })).toBeInTheDocument();
   });
 
   it("defaults to daily tab active", () => {
@@ -86,6 +102,18 @@ describe("ReportsPage", () => {
     await waitFor(() => {
       const weeklyTab = screen.getByRole("tab", { name: "Weekly" });
       expect(weeklyTab).toHaveAttribute("data-state", "active");
+    });
+  });
+
+  it("switches to monthly tab on click", async () => {
+    const user = userEvent.setup();
+    render(<ReportsPage />);
+
+    await user.click(screen.getByRole("tab", { name: "Monthly" }));
+
+    await waitFor(() => {
+      const monthlyTab = screen.getByRole("tab", { name: "Monthly" });
+      expect(monthlyTab).toHaveAttribute("data-state", "active");
     });
   });
 });

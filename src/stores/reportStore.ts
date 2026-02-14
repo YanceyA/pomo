@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
-import type { DailySummary, WeeklySummary } from "@/lib/schemas";
+import type {
+  DailySummary,
+  MonthlySummary,
+  WeeklySummary,
+} from "@/lib/schemas";
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -23,11 +27,21 @@ function addDays(dateStr: string, days: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function getMonthStart(dateStr: string): string {
+  return `${dateStr.slice(0, 7)}-01`;
+}
+
+function addMonths(monthStart: string, n: number): string {
+  const d = new Date(`${monthStart}T00:00:00`);
+  d.setMonth(d.getMonth() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
 // ── Store interface ──────────────────────────────────────────
 
 export interface ReportStore {
   // Tab state
-  activeTab: "daily" | "weekly";
+  activeTab: "daily" | "weekly" | "monthly";
 
   // Daily
   dailyDate: string;
@@ -39,8 +53,13 @@ export interface ReportStore {
   weeklySummary: WeeklySummary | null;
   isWeeklyLoading: boolean;
 
+  // Monthly
+  monthStart: string;
+  monthlySummary: MonthlySummary | null;
+  isMonthlyLoading: boolean;
+
   // Actions
-  setActiveTab: (tab: "daily" | "weekly") => void;
+  setActiveTab: (tab: "daily" | "weekly" | "monthly") => void;
   loadDailySummary: (date?: string) => Promise<void>;
   setDailyDate: (date: string) => Promise<void>;
   prevDay: () => Promise<void>;
@@ -51,6 +70,11 @@ export interface ReportStore {
   prevWeek: () => Promise<void>;
   nextWeek: () => Promise<void>;
   goToCurrentWeek: () => Promise<void>;
+  loadMonthlySummary: (monthStart?: string) => Promise<void>;
+  setMonthStart: (monthStart: string) => Promise<void>;
+  prevMonth: () => Promise<void>;
+  nextMonth: () => Promise<void>;
+  goToCurrentMonth: () => Promise<void>;
 }
 
 // ── Store ────────────────────────────────────────────────────
@@ -63,6 +87,9 @@ export const useReportStore = create<ReportStore>((set, get) => ({
   weekStart: getMonday(todayStr()),
   weeklySummary: null,
   isWeeklyLoading: false,
+  monthStart: getMonthStart(todayStr()),
+  monthlySummary: null,
+  isMonthlyLoading: false,
 
   setActiveTab: (tab) => {
     set({ activeTab: tab });
@@ -70,6 +97,8 @@ export const useReportStore = create<ReportStore>((set, get) => ({
       get().loadDailySummary();
     } else if (tab === "weekly" && !get().weeklySummary) {
       get().loadWeeklySummary();
+    } else if (tab === "monthly" && !get().monthlySummary) {
+      get().loadMonthlySummary();
     }
   },
 
@@ -139,5 +168,41 @@ export const useReportStore = create<ReportStore>((set, get) => ({
 
   goToCurrentWeek: async () => {
     await get().setWeekStart(getMonday(todayStr()));
+  },
+
+  loadMonthlySummary: async (monthStart) => {
+    const ms = monthStart ?? get().monthStart;
+    set({ isMonthlyLoading: true });
+    try {
+      const summary = await invoke<MonthlySummary>("get_monthly_summary", {
+        monthStart: ms,
+      });
+      set({
+        monthlySummary: summary,
+        monthStart: ms,
+        isMonthlyLoading: false,
+      });
+    } catch {
+      set({ isMonthlyLoading: false });
+    }
+  },
+
+  setMonthStart: async (monthStart) => {
+    set({ monthStart });
+    await get().loadMonthlySummary(monthStart);
+  },
+
+  prevMonth: async () => {
+    const prev = addMonths(get().monthStart, -1);
+    await get().setMonthStart(prev);
+  },
+
+  nextMonth: async () => {
+    const next = addMonths(get().monthStart, 1);
+    await get().setMonthStart(next);
+  },
+
+  goToCurrentMonth: async () => {
+    await get().setMonthStart(getMonthStart(todayStr()));
   },
 }));

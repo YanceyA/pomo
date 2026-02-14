@@ -8,6 +8,21 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => mockInvoke(...args),
 }));
 
+vi.mock("chartjs-adapter-date-fns", () => ({}));
+
+vi.mock("chart.js", () => ({
+  Chart: { register: vi.fn() },
+  TimeScale: {},
+  LinearScale: {},
+  BarElement: {},
+  Tooltip: {},
+  Legend: {},
+}));
+
+vi.mock("react-chartjs-2", () => ({
+  Bar: () => <div data-testid="mock-timeline-chart" />,
+}));
+
 const { useReportStore } = await import("@/stores/reportStore");
 const { DailySummary } = await import("../DailySummary");
 
@@ -204,5 +219,13 @@ describe("DailySummary", () => {
     await waitFor(() => {
       expect(screen.getByText("No tasks for this day.")).toBeInTheDocument();
     });
+  });
+
+  it("renders timeline chart when intervals exist", async () => {
+    render(<DailySummary />);
+    await waitFor(() => {
+      expect(screen.getByTestId("mock-timeline-chart")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Timeline")).toBeInTheDocument();
   });
 });

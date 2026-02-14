@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, Clock, Target, Timer } from "lucide-react";
 import { useEffect } from "react";
+import { DailyTimeline } from "@/components/DailyTimeline";
 import { Button } from "@/components/ui/button";
 import type { IntervalSummary, TaskGroup } from "@/lib/schemas";
 import { useReportStore } from "@/stores/reportStore";
@@ -240,6 +241,12 @@ export function DailySummary() {
               label="Tasks done"
               value={`${summary.tasks_completed}/${summary.tasks_total}`}
             />
+          </div>
+
+          {/* Timeline */}
+          <div>
+            <h3 className="mb-2 text-sm font-medium">Timeline</h3>
+            <DailyTimeline intervals={summary.intervals} date={summary.date} />
           </div>
 
           {/* Intervals */}

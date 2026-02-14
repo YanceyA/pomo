@@ -132,6 +132,27 @@ export const weeklySummarySchema = z.object({
 
 export type WeeklySummary = z.infer<typeof weeklySummarySchema>;
 
+export const weekStatSchema = z.object({
+  week_start: z.string(),
+  week_end: z.string(),
+  pomodoro_count: z.number(),
+  focus_minutes: z.number(),
+  tasks_completed: z.number(),
+});
+
+export type WeekStat = z.infer<typeof weekStatSchema>;
+
+export const monthlySummarySchema = z.object({
+  month_start: z.string(),
+  month_end: z.string(),
+  weekly_stats: z.array(weekStatSchema),
+  total_pomodoros: z.number(),
+  total_focus_minutes: z.number(),
+  total_tasks_completed: z.number(),
+});
+
+export type MonthlySummary = z.infer<typeof monthlySummarySchema>;
+
 // --- Input types (for create/update operations) ---
 
 export interface CreateIntervalInput {

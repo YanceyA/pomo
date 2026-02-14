@@ -478,10 +478,10 @@ main (protected, always releasable)
 
 | # | Verify | Pass? |
 |---|--------|-------|
-| 1 | Complete a work interval — association dialog appears with today's tasks | TODO|
-| 2 | Select 2 tasks and confirm — links persist in DB | TODO|
-| 3 | Complete a break interval — no association dialog | TODO |
-| 4 | Task panel shows which pomodoro(s) it was logged against | TODO |
+| 1 | Complete a work interval — association dialog appears with today's tasks | ✅ |
+| 2 | Select 2 tasks and confirm — links persist in DB | ✅ |
+| 3 | Complete a break interval — no association dialog | ✅ |
+| 4 | Task panel shows which pomodoro(s) it was logged against | ✅ |
 
 **UAT findings (from user testing):**
 - UAT 1: Post-pomodoro dialog should mark tasks as *complete*, not log pomodoro counts
@@ -698,13 +698,15 @@ main (protected, always releasable)
 
 ---
 
-## Milestone 9: Reporting & Analytics
+## Milestone 9: Reporting & Analytics ✅ COMPLETE
 
 **Goal:** Daily, weekly, and monthly summaries with visual timeline.
 
 **Spec coverage:** R-1 through R-7
 
-### PR 9.1 — Daily and weekly summary views
+### PR 9.1 — Daily and weekly summary views ✅ COMPLETE
+
+**Status:** Done (2026-02-15). All testing gates passed (121 Rust tests, 261 Vitest tests).
 
 **Scope:**
 - Reports page with tab navigation: Daily / Weekly / Monthly
@@ -718,39 +720,74 @@ main (protected, always releasable)
   - Tasks grouped by Jira ticket across the week (R-5)
 - Rust commands: `get_daily_summary(date)`, `get_weekly_summary(week_start)`
 
-**Testing:**
-- Rust tests: summary queries return correct aggregations with seed data
-- Vitest + RTL: daily view renders pomodoro count and task list
-- Vitest + RTL: weekly bar chart renders with correct data
+**Notes:**
+- Rust `reports.rs` module with `IntervalSummary`, `TaskSummary`, `TaskGroup`, `DailyStat`, `DailySummary`, `WeeklySummary` types.
+- Helper functions: `query_pomodoro_stats`, `query_task_counts`, `query_intervals`, `query_task_groups` — reusable across daily/weekly.
+- Zustand `reportStore.ts`: manages `activeTab`, date navigation state, loading flags. Lazy-loads on tab switch.
+- `ReportsPage` uses shadcn/ui Tabs. `DailySummary` and `WeeklySummary` components with date nav, stat cards, and data sections.
+- Chart.js `<Bar>` chart for weekly pomodoros per day. Registers `CategoryScale`, `LinearScale`, `BarElement`, `Tooltip`, `Legend`.
 
-### PR 9.2 — Visual timeline and monthly view
+**Testing:**
+- Rust tests: daily summary (empty day, work-only counting, interval ordering, task counts, jira groups, day exclusion) — **PASS**
+- Rust tests: weekly summary (empty week, cross-day aggregation, task groups, subtask exclusion, cancelled exclusion) — **PASS**
+- Vitest + RTL: daily view stats, intervals, task groups, navigation, loading/empty states — **PASS**
+- Vitest + RTL: weekly view stats, chart, breakdown, task groups, navigation, loading/empty states — **PASS**
+- Vitest + RTL: reports page tabs render and switch correctly — **PASS**
+- Vitest: report store daily/weekly actions and navigation — **PASS**
+- `npm run lint` passes — **PASS**
+- `npm run typecheck` passes — **PASS**
+- `npm run test` passes (261 tests) — **PASS**
+- `cargo test` passes (121 tests) — **PASS**
+- `cargo clippy -- -D warnings` passes — **PASS**
+
+### PR 9.2 — Visual timeline and monthly view ✅ COMPLETE
+
+**Status:** Done (2026-02-15). All testing gates passed (125 Rust tests, 282 Vitest tests).
 
 **Scope:**
 - Daily visual timeline (R-4):
   - Chart.js horizontal bar chart with time-scale x-axis (8AM–10PM)
   - Work intervals, short breaks, long breaks as colored bars positioned at actual times
   - Floating bars using `[start, end]` data points on the time axis
+  - `chartjs-adapter-date-fns` for TimeScale support
 - Monthly view:
   - Aggregate by week (R-6)
-  - Weekly pomodoro totals in a simple table or bar chart
+  - Weekly pomodoro totals in bar chart
   - Total tasks completed per week
+  - Month navigation (prev/next/This Month)
 - All reports are view-only (R-7)
 
+**Notes:**
+- New Rust types: `WeekStat`, `MonthlySummary`. Range helpers: `query_range_pomodoro_stats`, `query_range_tasks_completed`.
+- `get_monthly_summary` command: computes weeks from Monday on or before month start, clamps to month boundaries.
+- `DailyTimeline` component: horizontal bar chart with `indexAxis: "y"`, `TimeScale` x-axis, 3 datasets (work/short break/long break).
+- `MonthlySummary` component: month navigation, stat cards, bar chart (pomodoros per week), weekly breakdown.
+- Zod schemas: `weekStatSchema`, `monthlySummarySchema`.
+- Store extended: `activeTab` now includes "monthly", `monthStart`, `monthlySummary`, `isMonthlyLoading` state, navigation actions.
+
 **Testing:**
-- Vitest: Chart.js datasets are constructed correctly from interval data
-- Rust tests: monthly aggregation query returns correct weekly totals
-- Manual: timeline visually shows intervals at correct positions
+- Rust tests: monthly empty, multi-week aggregation, boundary clipping, correct week count — **PASS**
+- Vitest + RTL: DailyTimeline chart rendering, empty state, 3 datasets, labels, testid — **PASS**
+- Vitest + RTL: MonthlySummary stats, chart, breakdown, navigation, loading, This Month button — **PASS**
+- Vitest + RTL: DailySummary timeline chart rendering — **PASS**
+- Vitest + RTL: ReportsPage monthly tab renders and switches — **PASS**
+- Vitest: report store monthly load, explicit param, setMonthStart, prev/next, error — **PASS**
+- `npm run lint` passes — **PASS**
+- `npm run typecheck` passes — **PASS**
+- `npm run test` passes (282 tests) — **PASS**
+- `cargo test` passes (125 tests) — **PASS**
+- `cargo clippy -- -D warnings` passes — **PASS**
 
 ### UAT — Milestone 9
 
 | # | Verify | Pass? |
 |---|--------|-------|
-| 1 | Daily view shows correct pomodoro count and completed tasks | |
-| 2 | Daily timeline shows work/break blocks at the right times | |
-| 3 | Weekly view shows bar chart of pomodoros per day | |
-| 4 | Weekly view groups tasks by Jira ticket with counts | |
-| 5 | Monthly view aggregates by week | |
-| 6 | Navigate to a past week/month — data loads correctly | |
+| 1 | Daily view shows correct pomodoro count and completed tasks | ✅ |
+| 2 | Daily timeline shows work/break blocks at the right times | ✅ |
+| 3 | Weekly view shows bar chart of pomodoros per day | ✅ |
+| 4 | Weekly view groups tasks by Jira ticket with counts | ✅ |
+| 5 | Monthly view aggregates by week | ✅ |
+| 6 | Navigate to a past week/month — data loads correctly | ✅ |
 
 ---
 

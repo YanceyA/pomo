@@ -1,4 +1,5 @@
 import { DailySummary } from "@/components/DailySummary";
+import { MonthlySummary } from "@/components/MonthlySummary";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WeeklySummary } from "@/components/WeeklySummary";
 import { useReportStore } from "@/stores/reportStore";
@@ -12,17 +13,21 @@ export function ReportsPage() {
       <h2 className="mb-4 text-lg font-semibold">Reports</h2>
       <Tabs
         value={activeTab}
-        onValueChange={(v) => setActiveTab(v as "daily" | "weekly")}
+        onValueChange={(v) => setActiveTab(v as "daily" | "weekly" | "monthly")}
       >
         <TabsList>
           <TabsTrigger value="daily">Daily</TabsTrigger>
           <TabsTrigger value="weekly">Weekly</TabsTrigger>
+          <TabsTrigger value="monthly">Monthly</TabsTrigger>
         </TabsList>
         <TabsContent value="daily">
           <DailySummary />
         </TabsContent>
         <TabsContent value="weekly">
           <WeeklySummary />
+        </TabsContent>
+        <TabsContent value="monthly">
+          <MonthlySummary />
         </TabsContent>
       </Tabs>
     </div>

@@ -192,6 +192,60 @@ fn query_task_groups(
     Ok(groups)
 }
 
+// ── Monthly types ──────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WeekStat {
+    pub week_start: String,
+    pub week_end: String,
+    pub pomodoro_count: i64,
+    pub focus_minutes: i64,
+    pub tasks_completed: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MonthlySummary {
+    pub month_start: String,
+    pub month_end: String,
+    pub weekly_stats: Vec<WeekStat>,
+    pub total_pomodoros: i64,
+    pub total_focus_minutes: i64,
+    pub total_tasks_completed: i64,
+}
+
+// ── Range helpers ──────────────────────────────────────────
+
+fn query_range_pomodoro_stats(
+    conn: &Connection,
+    start: &str,
+    end: &str,
+) -> Result<(i64, i64), String> {
+    conn.query_row(
+        "SELECT COUNT(*), COALESCE(SUM(duration_seconds), 0)
+         FROM timer_intervals
+         WHERE status = 'completed' AND interval_type = 'work'
+           AND date(start_time) BETWEEN ?1 AND ?2",
+        [start, end],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .map_err(|e| format!("Failed to query range pomodoro stats: {e}"))
+}
+
+fn query_range_tasks_completed(
+    conn: &Connection,
+    start: &str,
+    end: &str,
+) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM tasks
+         WHERE day_date BETWEEN ?1 AND ?2
+           AND status = 'completed' AND parent_task_id IS NULL",
+        [start, end],
+        |row| row.get(0),
+    )
+    .map_err(|e| format!("Failed to query range tasks completed: {e}"))
+}
+
 // ── Tauri commands ──────────────────────────────────────────
 
 #[allow(clippy::needless_pass_by_value)]
@@ -314,6 +368,98 @@ pub fn get_weekly_summary(
         total_focus_minutes,
         total_tasks_completed,
         task_groups,
+    })
+}
+
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn get_monthly_summary(
+    state: tauri::State<'_, AppState>,
+    month_start: String,
+) -> Result<MonthlySummary, String> {
+    let conn = open_db(&state.db_path)?;
+
+    // Compute month_end (last day of the month)
+    let month_end: String = conn
+        .query_row(
+            "SELECT date(?1, '+1 month', '-1 day')",
+            [&month_start],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to compute month end: {e}"))?;
+
+    // Find the Monday on or before month_start
+    // SQLite: strftime('%w', date) returns 0=Sun,1=Mon,...,6=Sat
+    let first_monday: String = conn
+        .query_row(
+            "SELECT date(?1, '-' || ((strftime('%w', ?1) + 6) % 7) || ' days')",
+            [&month_start],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to compute first Monday: {e}"))?;
+
+    // Walk forward by 7 days, collecting weeks that overlap with the month
+    let mut weekly_stats: Vec<WeekStat> = Vec::new();
+    let mut week_cursor = first_monday;
+
+    loop {
+        let ws_end: String = conn
+            .query_row(
+                "SELECT date(?1, '+6 days')",
+                [&week_cursor],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Failed to compute week end: {e}"))?;
+
+        // If the week starts after the month ends, we're done
+        if week_cursor > month_end {
+            break;
+        }
+
+        // Clamp effective range to [month_start, month_end]
+        let eff_start = if week_cursor < month_start {
+            month_start.clone()
+        } else {
+            week_cursor.clone()
+        };
+        let eff_end = if ws_end > month_end {
+            month_end.clone()
+        } else {
+            ws_end.clone()
+        };
+
+        let (pomo_count, focus_secs) = query_range_pomodoro_stats(&conn, &eff_start, &eff_end)?;
+        let tasks_completed = query_range_tasks_completed(&conn, &eff_start, &eff_end)?;
+
+        weekly_stats.push(WeekStat {
+            week_start: week_cursor.clone(),
+            week_end: ws_end,
+            pomodoro_count: pomo_count,
+            focus_minutes: focus_secs / 60,
+            tasks_completed,
+        });
+
+        // Advance to next week
+        week_cursor = conn
+            .query_row(
+                "SELECT date(?1, '+7 days')",
+                [&week_cursor],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| format!("Failed to advance week: {e}"))?;
+    }
+
+    let total_pomodoros = weekly_stats.iter().map(|w| w.pomodoro_count).sum();
+    let total_focus_minutes = weekly_stats.iter().map(|w| w.focus_minutes).sum();
+    let total_tasks_completed = weekly_stats.iter().map(|w| w.tasks_completed).sum();
+
+    Ok(MonthlySummary {
+        month_start,
+        month_end,
+        weekly_stats,
+        total_pomodoros,
+        total_focus_minutes,
+        total_tasks_completed,
     })
 }
 
@@ -582,5 +728,93 @@ mod tests {
         let (pomo_count, focus_secs) = query_pomodoro_stats(&conn, "2026-02-10").unwrap();
         assert_eq!(pomo_count, 1);
         assert_eq!(focus_secs, 1500);
+    }
+
+    // ── Monthly summary tests ─────────────────────────────
+
+    #[test]
+    fn monthly_summary_empty_month() {
+        let conn = setup_test_db();
+        let (pomo_count, focus_secs) = query_range_pomodoro_stats(&conn, "2026-02-01", "2026-02-28").unwrap();
+        let tasks = query_range_tasks_completed(&conn, "2026-02-01", "2026-02-28").unwrap();
+
+        assert_eq!(pomo_count, 0);
+        assert_eq!(focus_secs, 0);
+        assert_eq!(tasks, 0);
+    }
+
+    #[test]
+    fn monthly_summary_multi_week_aggregation() {
+        let conn = setup_test_db();
+        // Week 1 (Feb 2-8)
+        insert_interval(&conn, "work", "2026-02-02T09:00:00Z", "2026-02-02T09:25:00Z", 1500, "completed");
+        insert_interval(&conn, "work", "2026-02-04T09:00:00Z", "2026-02-04T09:25:00Z", 1500, "completed");
+        insert_task(&conn, "Week1 Task", "2026-02-02", "completed", None, 0);
+        // Week 2 (Feb 9-15)
+        insert_interval(&conn, "work", "2026-02-10T09:00:00Z", "2026-02-10T09:25:00Z", 1500, "completed");
+        insert_task(&conn, "Week2 Task", "2026-02-10", "completed", None, 0);
+
+        let (pomo_count, focus_secs) = query_range_pomodoro_stats(&conn, "2026-02-01", "2026-02-28").unwrap();
+        let tasks = query_range_tasks_completed(&conn, "2026-02-01", "2026-02-28").unwrap();
+
+        assert_eq!(pomo_count, 3);
+        assert_eq!(focus_secs, 4500);
+        assert_eq!(tasks, 2);
+    }
+
+    #[test]
+    fn monthly_summary_boundary_clipping() {
+        let conn = setup_test_db();
+        // Data in January (should be excluded from Feb month)
+        insert_interval(&conn, "work", "2026-01-31T09:00:00Z", "2026-01-31T09:25:00Z", 1500, "completed");
+        insert_task(&conn, "Jan Task", "2026-01-31", "completed", None, 0);
+        // Data in February (should be included)
+        insert_interval(&conn, "work", "2026-02-01T09:00:00Z", "2026-02-01T09:25:00Z", 1500, "completed");
+        insert_task(&conn, "Feb Task", "2026-02-01", "completed", None, 0);
+        // Data in March (should be excluded)
+        insert_interval(&conn, "work", "2026-03-01T09:00:00Z", "2026-03-01T09:25:00Z", 1500, "completed");
+        insert_task(&conn, "Mar Task", "2026-03-01", "completed", None, 0);
+
+        let (pomo_count, _) = query_range_pomodoro_stats(&conn, "2026-02-01", "2026-02-28").unwrap();
+        let tasks = query_range_tasks_completed(&conn, "2026-02-01", "2026-02-28").unwrap();
+
+        assert_eq!(pomo_count, 1);
+        assert_eq!(tasks, 1);
+    }
+
+    #[test]
+    fn monthly_summary_correct_week_count() {
+        let conn = setup_test_db();
+
+        // February 2026: starts on Sunday Feb 1
+        // Monday on or before Feb 1 = Jan 26
+        // Weeks: Jan 26, Feb 2, Feb 9, Feb 16, Feb 23 = 5 weeks
+        let month_end: String = conn
+            .query_row("SELECT date('2026-02-01', '+1 month', '-1 day')", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(month_end, "2026-02-28");
+
+        let first_monday: String = conn
+            .query_row(
+                "SELECT date('2026-02-01', '-' || ((strftime('%w', '2026-02-01') + 6) % 7) || ' days')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(first_monday, "2026-01-26");
+
+        // Count weeks that overlap with the month
+        let mut count = 0;
+        let mut cursor = first_monday;
+        loop {
+            if cursor > month_end {
+                break;
+            }
+            count += 1;
+            cursor = conn
+                .query_row("SELECT date(?1, '+7 days')", [&cursor], |row| row.get::<_, String>(0))
+                .unwrap();
+        }
+        assert_eq!(count, 5);
     }
 }

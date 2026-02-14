@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** M2 in progress (PR 2.1 complete) — SQLite database initializes on app start with schema v1. Migration runner, 4 tables, trigger, indexes, and default settings all in place. PR 2.2 (TypeScript repository layer) is next.
+**Current status:** M2 complete — SQLite database with schema v1 (migration runner, 4 tables, trigger, indexes, default settings) and TypeScript repository layer (typed wrappers, Zod validation, 40 frontend tests). M3 (Timer System) is next.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -42,6 +42,7 @@ Linting (Rust):     Clippy (pedantic, via .cargo/config.toml)
 ```
 Database:           rusqlite 0.32 (bundled, migration runner + Rust tests)
                     tauri-plugin-sql 2 (SQLite, frontend SQL access)
+                    @tauri-apps/plugin-sql (npm, TypeScript Database API)
 ```
 
 ### Not Yet Installed (Future Milestones)
@@ -62,7 +63,14 @@ pomo/
 │   │   └── ui/
 │   │       └── button.tsx      # shadcn/ui Button component
 │   ├── lib/
-│   │   └── utils.ts            # cn() utility (clsx + tailwind-merge)
+│   │   ├── utils.ts            # cn() utility (clsx + tailwind-merge)
+│   │   ├── db.ts               # Database singleton (tauri-plugin-sql)
+│   │   ├── schemas.ts          # Zod schemas + TypeScript types for all domain entities
+│   │   ├── settingsRepository.ts     # CRUD for user_settings table
+│   │   ├── intervalsRepository.ts    # CRUD for timer_intervals table
+│   │   ├── tasksRepository.ts        # CRUD for tasks table (incl. clone, copyToDay)
+│   │   ├── taskIntervalLinksRepository.ts  # CRUD for task_interval_links table
+│   │   └── __tests__/          # Repository + schema tests (mock DB via vi.mock)
 │   ├── App.tsx                 # Root component — "Pomo" heading + Button
 │   ├── App.test.tsx            # Smoke test — app renders heading + button
 │   ├── test-setup.ts           # Vitest setup — jest-dom matchers
@@ -137,6 +145,13 @@ Two jobs: `lint-and-test` then `build`.
 - The `test` feature is enabled on the `tauri` dependency.
 - Database tests use `rusqlite::Connection::open_in_memory()` with `PRAGMA foreign_keys = ON` for full schema validation (26 tests covering migrations, tables, indexes, trigger, settings, constraints, foreign keys, and cloud path detection).
 
+### Frontend Testing Notes
+- Repository tests mock the `../db` module with `vi.mock()` to avoid Tauri IPC calls.
+- Mock DB (`__tests__/db.mock.ts`) provides `MockDatabase` with `select`, `execute`, and `close` mock functions.
+- Each test file must call `vi.mock("../db", ...)` before importing the repository module (use dynamic `await import()`).
+- Zod schema tests validate both well-formed data acceptance and malformed data rejection.
+- Current test count: 40 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke).
+
 ## Architecture Notes
 
 ### Timer System
@@ -152,7 +167,9 @@ Two jobs: `lint-and-test` then `build`.
 - `PRAGMA foreign_keys = ON` set on every connection.
 - WAL mode for local paths; `journal_mode=DELETE` for cloud-synced paths (OneDrive/Dropbox/Google Drive/iCloud) — auto-detected by `is_cloud_synced_path()`.
 - DB file created at `$APPDATA/com.pomo.app/pomo.db` on first launch (Tauri setup hook).
-- `tauri-plugin-sql` registered for frontend SQL access (used by TypeScript repository layer in PR 2.2).
+- `tauri-plugin-sql` registered for frontend SQL access via `@tauri-apps/plugin-sql` npm package.
+- TypeScript repository layer (`src/lib/*Repository.ts`) provides typed wrappers around `db.select<T>()` and `db.execute()`.
+- Zod schemas (`src/lib/schemas.ts`) validate all DB results at runtime; types inferred via `z.infer<>`.
 - `rusqlite` (bundled) used for the Rust-side migration runner and backend tests.
 - Tasks support one level of subtasks via `parent_task_id` (enforced by `enforce_single_level_subtasks` trigger).
 - Cross-day task copies linked via `linked_from_task_id` (SET NULL on delete).
@@ -171,8 +188,10 @@ Two jobs: `lint-and-test` then `build`.
 - **Tailwind CSS v4:** Uses `@tailwindcss/vite` plugin — no `tailwind.config.ts` file. Theme configured in `src/index.css` using `@theme` directives.
 - **shadcn/ui:** Components in `src/components/ui/`. Add new components with `npx shadcn@latest add <name>`. Config in `components.json`.
 - Zustand stores for timer state, task state, and settings.
-- Typed TypeScript repository wrappers around `tauri-plugin-sql` `execute`/`select` calls (no ORM).
-- Zod schemas for runtime validation of DB results and form inputs.
+- **Repository pattern:** Typed wrappers in `src/lib/*Repository.ts` around `tauri-plugin-sql` `execute`/`select` calls (no ORM). SQL uses `$1, $2, $3` positional parameters.
+- **Zod validation:** All DB query results validated via Zod schemas in `src/lib/schemas.ts`. Domain types (`Task`, `TimerInterval`, `Setting`, `TaskIntervalLink`) inferred from schemas.
+- **DB singleton:** `src/lib/db.ts` exports `getDb()` which lazily connects to `sqlite:pomo.db` via `Database.load()`.
+- **Test mocking:** Repository tests mock `../db` module via `vi.mock()` in each test file, with shared mock helpers in `__tests__/db.mock.ts`. Repository modules must be imported dynamically after `vi.mock()` setup: `const repo = await import("../repository")`.
 
 ## Development Plan (10 Milestones)
 

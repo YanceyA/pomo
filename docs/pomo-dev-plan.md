@@ -142,7 +142,9 @@ main (protected, always releasable)
 - Rust tests: `linked_from_task_id` SET NULL on delete — **PASS**
 - Clippy passes with `-D warnings` — **PASS**
 
-### PR 2.2 — TypeScript repository layer
+### PR 2.2 — TypeScript repository layer ✅ COMPLETE
+
+**Status:** Done (2026-02-14). All testing gates passed (40 Vitest tests).
 
 **Scope:**
 - Create typed wrappers around `tauri-plugin-sql` for each table:
@@ -153,18 +155,27 @@ main (protected, always releasable)
 - Define TypeScript interfaces for all domain entities (`Task`, `TimerInterval`, `Setting`, etc.)
 - Zod schemas for runtime validation of DB results
 
+**Notes:**
+- `@tauri-apps/plugin-sql` npm package added for TypeScript Database API (`Database.load()`, `db.select<T>()`, `db.execute()`).
+- SQL uses `$1, $2, $3` positional parameters (tauri-plugin-sql convention for SQLite).
+- Zod v4 schemas with `z.infer<>` for type derivation — no separate interface definitions needed.
+- Repository tests mock `../db` module via `vi.mock()` with dynamic imports (`await import()`).
+
 **Testing:**
-- Vitest: repository functions produce correct SQL (mock `invoke`)
-- Vitest: Zod schemas validate well-formed data and reject malformed data
+- Vitest: repository functions produce correct SQL (mock `Database`) — **PASS**
+- Vitest: Zod schemas validate well-formed data and reject malformed data — **PASS**
+- `npm run lint` passes — **PASS**
+- `npm run typecheck` passes — **PASS**
+- `npm run test` passes (40 tests: 14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke) — **PASS**
 
 ### UAT — Milestone 2
 
 | # | Verify | Pass? |
 |---|--------|-------|
-| 1 | App creates `pomo.db` on first launch | |
-| 2 | DB contains all 4 tables with correct schema (inspect with DB browser) | |
-| 3 | Default settings are present in `user_settings` | |
-| 4 | Subtask nesting trigger fires when attempting to nest 2 levels deep | |
+| 1 | App creates `pomo.db` on first launch | ✅ |
+| 2 | DB contains all 4 tables with correct schema (inspect with DB browser) | ✅ |
+| 3 | Default settings are present in `user_settings` | ✅ |
+| 4 | Subtask nesting trigger fires when attempting to nest 2 levels deep | ✅ |
 
 ---
 

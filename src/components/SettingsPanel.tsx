@@ -1,4 +1,4 @@
-import { Settings } from "lucide-react";
+import { Settings, Volume2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,6 +12,8 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { Slider } from "@/components/ui/slider";
+import { playAlarmChime } from "@/lib/audio";
 import * as settingsRepository from "@/lib/settingsRepository";
 import { useTimerStore } from "@/stores/timerStore";
 
@@ -21,11 +23,12 @@ interface SettingsFormValues {
   longBreakDuration: number;
   longBreakFrequency: number;
   breakOvertimeEnabled: boolean;
+  alarmVolume: number;
 }
 
 const PRESETS: {
   label: string;
-  values: Omit<SettingsFormValues, "breakOvertimeEnabled">;
+  values: Omit<SettingsFormValues, "breakOvertimeEnabled" | "alarmVolume">;
 }[] = [
   {
     label: "25 / 5",
@@ -94,6 +97,7 @@ export function SettingsPanel() {
     longBreakDuration: 15,
     longBreakFrequency: 4,
     breakOvertimeEnabled: false,
+    alarmVolume: 0.6,
   });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -110,6 +114,7 @@ export function SettingsPanel() {
         longBreakDuration: Number(map.get("long_break_duration_minutes")) || 15,
         longBreakFrequency: Number(map.get("long_break_frequency")) || 4,
         breakOvertimeEnabled: map.get("break_overtime_enabled") === "true",
+        alarmVolume: Number(map.get("alarm_volume")) || 0.6,
       });
       setError(null);
     })();
@@ -123,7 +128,7 @@ export function SettingsPanel() {
   };
 
   const applyPreset = (
-    preset: Omit<SettingsFormValues, "breakOvertimeEnabled">,
+    preset: Omit<SettingsFormValues, "breakOvertimeEnabled" | "alarmVolume">,
   ) => {
     setForm((prev) => ({ ...prev, ...preset }));
     setError(null);
@@ -136,6 +141,7 @@ export function SettingsPanel() {
       longBreakDuration: clamp(form.longBreakDuration, 5, 60),
       longBreakFrequency: clamp(form.longBreakFrequency, 1, 10),
       breakOvertimeEnabled: form.breakOvertimeEnabled,
+      alarmVolume: form.alarmVolume,
     };
 
     const validationError = validate(clamped);
@@ -166,6 +172,7 @@ export function SettingsPanel() {
         "break_overtime_enabled",
         String(clamped.breakOvertimeEnabled),
       );
+      await settingsRepository.set("alarm_volume", String(clamped.alarmVolume));
       await loadSettings();
       setOpen(false);
     } catch (err) {
@@ -290,6 +297,48 @@ export function SettingsPanel() {
               <p className="text-xs text-muted-foreground">
                 When enabled, break timers count up past zero to show how long
                 the break was exceeded.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="alarm-volume">
+                <span className="flex items-center gap-2">
+                  <Volume2 className="h-4 w-4" />
+                  Alarm volume
+                </span>
+              </Label>
+              <span
+                className="text-sm text-muted-foreground"
+                data-testid="settings-volume-value"
+              >
+                {Math.round(form.alarmVolume * 100)}%
+              </span>
+            </div>
+            <Slider
+              id="alarm-volume"
+              data-testid="settings-alarm-volume"
+              min={0}
+              max={1}
+              step={0.05}
+              value={[form.alarmVolume]}
+              onValueChange={([v]) =>
+                setForm((prev) => ({ ...prev, alarmVolume: v }))
+              }
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="settings-test-alarm"
+                type="button"
+                onClick={() => playAlarmChime(form.alarmVolume, 1)}
+              >
+                Test
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Play a single chime at current volume
               </p>
             </div>
           </div>

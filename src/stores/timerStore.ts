@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
+import { playAlarmChime } from "@/lib/audio";
 import type { IntervalType } from "@/lib/schemas";
 import * as settingsRepository from "@/lib/settingsRepository";
 
@@ -53,6 +54,7 @@ export interface TimerStore {
   longBreakDuration: number;
   longBreakFrequency: number;
   breakOvertimeEnabled: boolean;
+  alarmVolume: number;
 
   // Completion notification
   showCompletionNotice: boolean;
@@ -133,6 +135,7 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
   longBreakDuration: 900,
   longBreakFrequency: 4,
   breakOvertimeEnabled: false,
+  alarmVolume: 0.6,
 
   // Completion
   showCompletionNotice: false,
@@ -205,6 +208,7 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
         (Number(map.get("long_break_duration_minutes")) || 15) * 60,
       longBreakFrequency: Number(map.get("long_break_frequency")) || 4,
       breakOvertimeEnabled: map.get("break_overtime_enabled") === "true",
+      alarmVolume: Number(map.get("alarm_volume")) || 0.6,
     });
   },
 
@@ -251,6 +255,14 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
             // Show association dialog only for work intervals
             showAssociationDialog: isWork,
             lastCompletedIntervalId: isWork ? event.payload.interval_id : null,
+          });
+        }
+
+        // Play alarm chime on timer completion
+        const alarmVolume = get().alarmVolume;
+        if (alarmVolume > 0) {
+          playAlarmChime(alarmVolume).catch(() => {
+            // Audio errors are non-critical — silently ignore
           });
         }
       },

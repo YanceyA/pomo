@@ -4,6 +4,7 @@ mod database;
 pub mod reports;
 pub mod tasks;
 pub mod timer;
+pub mod audio;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -33,6 +34,7 @@ pub fn run() {
             reports::get_daily_summary,
             reports::get_weekly_summary,
             reports::get_monthly_summary,
+            audio::play_alarm,
         ])
         .setup(|app| {
             let app_data_dir = app
@@ -80,6 +82,7 @@ mod tests {
                 crate::reports::get_daily_summary,
                 crate::reports::get_weekly_summary,
                 crate::reports::get_monthly_summary,
+                crate::audio::play_alarm,
             ])
             .build(tauri::test::mock_context(noop_assets()))
             .expect("failed to build mock Tauri app");

@@ -161,6 +161,22 @@ pub fn run_migrations(conn: &Connection) -> SqliteResult<()> {
         }
     }
 
+    if current < 3 {
+        conn.execute_batch("BEGIN;")?;
+        match conn.execute_batch(
+            "INSERT OR IGNORE INTO user_settings (key, value, type) VALUES ('alarm_volume', '0.6', 'real');",
+        ) {
+            Ok(()) => {
+                set_user_version(conn, 3)?;
+                conn.execute_batch("COMMIT;")?;
+            }
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK;");
+                return Err(e);
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -210,15 +226,15 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         run_migrations(&conn).unwrap();
-        assert_eq!(get_user_version(&conn).unwrap(), 2);
+        assert_eq!(get_user_version(&conn).unwrap(), 3);
     }
 
     #[test]
-    fn user_version_is_set_to_2_after_migration() {
+    fn user_version_is_set_to_3_after_migration() {
         let conn = Connection::open_in_memory().unwrap();
         assert_eq!(get_user_version(&conn).unwrap(), 0);
         run_migrations(&conn).unwrap();
-        assert_eq!(get_user_version(&conn).unwrap(), 2);
+        assert_eq!(get_user_version(&conn).unwrap(), 3);
     }
 
     // ── Table existence tests ───────────────────────────────────
@@ -342,7 +358,7 @@ mod tests {
         let count: u32 = conn
             .query_row("SELECT COUNT(*) FROM user_settings", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 7, "Expected 7 default settings");
+        assert_eq!(count, 8, "Expected 8 default settings");
     }
 
     #[test]
@@ -723,7 +739,7 @@ mod tests {
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         run_migrations(&conn).unwrap();
         run_migrations(&conn).unwrap();
-        assert_eq!(get_user_version(&conn).unwrap(), 2);
+        assert_eq!(get_user_version(&conn).unwrap(), 3);
 
         // Column still exists and setting still present
         let count: u32 = conn
@@ -767,5 +783,38 @@ mod tests {
             )
             .unwrap();
         assert!(linked.is_none(), "linked_from_task_id should be NULL after original is deleted");
+    }
+
+    // ── Migration v3 tests ────────────────────────────────────
+
+    #[test]
+    fn migration_v3_seeds_alarm_volume_setting() {
+        let conn = setup_test_db();
+        let value: String = conn
+            .query_row(
+                "SELECT value FROM user_settings WHERE key = 'alarm_volume'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, "0.6");
+    }
+
+    #[test]
+    fn migration_v3_is_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        run_migrations(&conn).unwrap();
+        run_migrations(&conn).unwrap();
+        assert_eq!(get_user_version(&conn).unwrap(), 3);
+
+        let count: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM user_settings WHERE key = 'alarm_volume'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
     }
 }

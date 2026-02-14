@@ -30,6 +30,11 @@ vi.mock("@/lib/settingsRepository", () => ({
   getAll: vi.fn(async () => []),
 }));
 
+const mockPlayAlarmChime = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/audio", () => ({
+  playAlarmChime: (...args: unknown[]) => mockPlayAlarmChime(...args),
+}));
+
 const { useTimerStore } = await import("../timerStore");
 
 describe("timerStore", () => {
@@ -51,6 +56,7 @@ describe("timerStore", () => {
       longBreakDuration: 900,
       longBreakFrequency: 4,
       breakOvertimeEnabled: false,
+      alarmVolume: 0.6,
       showCompletionNotice: false,
       completedIntervalType: null,
       showAssociationDialog: false,
@@ -469,6 +475,72 @@ describe("timerStore", () => {
 
       expect(useTimerStore.getState().overtime).toBe(false);
       expect(useTimerStore.getState().overtimeMs).toBe(0);
+    });
+  });
+
+  describe("alarm audio", () => {
+    it("plays alarm chime on timer-complete event", async () => {
+      useTimerStore.setState({ state: "running", alarmVolume: 0.8 });
+      await useTimerStore.getState().initEventListeners();
+
+      const completeCallback = listeners.get("timer-complete");
+      completeCallback?.({
+        payload: {
+          interval_id: 1,
+          interval_type: "work",
+          completed_work_count: 1,
+        },
+      });
+
+      expect(mockPlayAlarmChime).toHaveBeenCalledWith(0.8);
+    });
+
+    it("does not play alarm when volume is 0", async () => {
+      useTimerStore.setState({ state: "running", alarmVolume: 0 });
+      await useTimerStore.getState().initEventListeners();
+
+      const completeCallback = listeners.get("timer-complete");
+      completeCallback?.({
+        payload: {
+          interval_id: 1,
+          interval_type: "work",
+          completed_work_count: 1,
+        },
+      });
+
+      expect(mockPlayAlarmChime).not.toHaveBeenCalled();
+    });
+
+    it("plays alarm on break interval complete", async () => {
+      useTimerStore.setState({ state: "running", alarmVolume: 0.5 });
+      await useTimerStore.getState().initEventListeners();
+
+      const completeCallback = listeners.get("timer-complete");
+      completeCallback?.({
+        payload: {
+          interval_id: 2,
+          interval_type: "short_break",
+          completed_work_count: 1,
+        },
+      });
+
+      expect(mockPlayAlarmChime).toHaveBeenCalledWith(0.5);
+    });
+
+    it("loads alarm volume from settings", async () => {
+      const { getAll } = await import("@/lib/settingsRepository");
+      (getAll as Mock).mockResolvedValue([
+        {
+          key: "alarm_volume",
+          value: "0.3",
+          type: "real",
+          updated_at: "2026-02-15T10:00:00Z",
+        },
+      ]);
+
+      await useTimerStore.getState().loadSettings();
+
+      expect(useTimerStore.getState().alarmVolume).toBe(0.3);
     });
   });
 });

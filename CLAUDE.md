@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** M9 complete — PR 9.1 Reports page with daily/weekly summaries; PR 9.2 daily visual timeline and monthly view. M8 PR 8.1 complete — Past day review and task copying (calendar dot indicators, copy-to-today, copied-from indicator). M6 complete (settings UI). M5 PR 5.2 complete — UAT fixes (dialog redesign, completed_in_pomodoro, break overtime, auto-dismiss). M4 complete (task CRUD, subtasks, drag-and-drop, day scoping, edit/reopen/undo-delete). M3 complete (timer state machine + frontend). M2 complete (SQLite schema v2, TypeScript repository layer). M7 (Jira Integration) skipped due to IT/tech blockers.
+**Current status:** M10 PR 10.1 complete — Alarm audio (chime WAV, Web Audio API + rodio fallback, volume setting, test button). M9 complete — PR 9.1 Reports page with daily/weekly summaries; PR 9.2 daily visual timeline and monthly view. M8 PR 8.1 complete — Past day review and task copying (calendar dot indicators, copy-to-today, copied-from indicator). M6 complete (settings UI). M5 PR 5.2 complete — UAT fixes (dialog redesign, completed_in_pomodoro, break overtime, auto-dismiss). M4 complete (task CRUD, subtasks, drag-and-drop, day scoping, edit/reopen/undo-delete). M3 complete (timer state machine + frontend). M2 complete (SQLite schema v2, TypeScript repository layer). M7 (Jira Integration) skipped due to IT/tech blockers.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -46,11 +46,11 @@ Database:           rusqlite 0.32 (bundled, migration runner + Rust tests)
                     @tauri-apps/plugin-sql (npm, TypeScript Database API)
 Async runtime:      tokio 1 (rt, time, sync, macros — for timer background task)
 Date/time:          chrono 0.4 (ISO 8601 timestamp generation in Rust)
+Audio:              Web Audio API (HTMLAudioElement) + rodio 0.19 (Rust fallback, WAV only)
 ```
 
 ### Not Yet Installed (Future Milestones)
 ```
-Audio:              Web Audio API + rodio (Rust fallback) — M10
 Jira HTTP:          reqwest (Rust) — M7
 Credentials:        keyring crate — M7
 MCP:                @anthropic-ai/mcp-server-sqlite — M10
@@ -82,7 +82,7 @@ pomo/
 │   │   ├── IntervalTypeSelector.tsx  # Work / Short Break / Long Break radio group
 │   │   ├── DateNavigator.tsx   # Day picker with prev/next arrows, calendar popover, Today button
 │   │   ├── IntervalAssociationDialog.tsx  # Post-interval dialog to link tasks to completed pomodoro
-│   │   ├── SettingsPanel.tsx   # Settings sheet with timer durations, presets, validation
+│   │   ├── SettingsPanel.tsx   # Settings sheet with timer durations, presets, volume slider, validation
 │   │   ├── TaskList.tsx        # Day's task list with DateNavigator, DndContext, drag-and-drop reordering
 │   │   ├── TaskPanel.tsx       # Sortable task card with drag handle, status, tag, subtasks, actions
 │   │   ├── TaskPanelOverlay.tsx # Simplified task card for drag overlay preview
@@ -100,6 +100,7 @@ pomo/
 │   │   ├── reportStore.ts      # Zustand store for report tab, daily/weekly summary state
 │   │   └── __tests__/          # Store tests
 │   ├── lib/
+│   │   ├── audio.ts            # Alarm chime playback (Web Audio API + Rust fallback)
 │   │   ├── utils.ts            # cn() utility (clsx + tailwind-merge)
 │   │   ├── db.ts               # Database singleton (tauri-plugin-sql)
 │   │   ├── schemas.ts          # Zod schemas + TypeScript types for all domain entities
@@ -110,7 +111,7 @@ pomo/
 │   │   └── __tests__/          # Repository + schema tests (mock DB via vi.mock)
 │   ├── App.tsx                 # Root component — Timer/Reports view switching
 │   ├── App.test.tsx            # Smoke test — app renders heading + start button
-│   ├── test-setup.ts           # Vitest setup — jest-dom matchers
+│   ├── test-setup.ts           # Vitest setup — jest-dom matchers + ResizeObserver polyfill
 │   ├── main.tsx                # React entry point
 │   ├── index.css               # Tailwind CSS v4 + shadcn/ui theme variables
 │   └── vite-env.d.ts           # Vite type declarations
@@ -121,7 +122,8 @@ pomo/
 │   │   ├── timer.rs            # Timer state machine, Tauri commands, background tick task
 │   │   ├── tasks.rs            # Task CRUD Tauri commands (create, update, delete, complete, abandon, clone, reorder)
 │   │   ├── reports.rs          # Report Tauri commands (get_daily_summary, get_weekly_summary)
-│   │   └── database.rs         # SQLite migration runner, schema v1, cloud-sync detection
+│   │   ├── audio.rs            # Alarm audio playback via rodio (Rust fallback for Web Audio)
+│   │   └── database.rs         # SQLite migration runner, schema v1-v3, cloud-sync detection
 │   ├── .cargo/
 │   │   └── config.toml         # Clippy lint configuration (pedantic)
 │   ├── capabilities/
@@ -131,6 +133,10 @@ pomo/
 │   ├── Cargo.toml              # Rust dependencies
 │   └── tauri.conf.json         # Tauri config (app name, window size, bundling)
 ├── public/                     # Static assets served by Vite
+│   └── sounds/
+│       └── chime.wav           # Alarm chime audio (two-tone bell, ~0.8s, 16-bit mono PCM)
+├── scripts/
+│   └── generate-chime.mjs      # Node.js script to regenerate chime WAV file
 ├── .github/
 │   └── workflows/
 │       └── ci.yml              # CI pipeline: lint → typecheck → vitest → clippy → cargo test → build
@@ -183,7 +189,7 @@ Two jobs: `lint-and-test` then `build`.
 - Tauri's `common-controls-v6` default feature is disabled to allow `cargo test` on Windows (causes `STATUS_ENTRYPOINT_NOT_FOUND` in test binaries).
 - Tests use `tauri::test::mock_builder()` with `MockRuntime` instead of real WebView2.
 - The `test` feature is enabled on the `tauri` dependency.
-- Database tests use `rusqlite::Connection::open_in_memory()` with `PRAGMA foreign_keys = ON` for full schema validation (26 tests covering migrations, tables, indexes, trigger, settings, constraints, foreign keys, and cloud path detection).
+- Database tests use `rusqlite::Connection::open_in_memory()` with `PRAGMA foreign_keys = ON` for full schema validation (28 tests covering migrations v1-v3, tables, indexes, trigger, settings, constraints, foreign keys, and cloud path detection).
 - Timer tests (32 tests) cover: state machine transitions, invalid transition rejection, work count tracking, long break reset, serde roundtrip, DB interval operations (insert/complete/cancel), and full lifecycle cycles.
 - Task tests (24 tests) cover: CRUD operations, subtask creation, parent completion constraints (pending subtasks block completion, abandoned subtasks allow completion), status transitions, cloning with deep subtask copy, reorder position updates, serde roundtrip, reopen from completed/abandoned, reopen-when-pending error, and delete guard for completed/abandoned tasks.
 - Task-interval link tests (5 tests) cover: link creation, batch linking, INSERT OR IGNORE deduplication, interval count query with correct data, and day-scoped filtering.
@@ -191,7 +197,8 @@ Two jobs: `lint-and-test` then `build`.
 - Days-with-tasks tests (3 tests) cover: distinct date aggregation, subtask exclusion, and date range filtering.
 - Origin dates tests (1 test) cover: INNER JOIN returning correct origin day_date for copied tasks.
 - Report tests (15 tests) cover: empty day summary, work-only pomodoro counting, interval chronological ordering, task counts excluding subtasks, jira key grouping with NULLS LAST, day exclusion, empty week, cross-day weekly aggregation, week-spanning task groups, subtask exclusion from groups, cancelled interval exclusion, monthly empty, monthly multi-week aggregation, monthly boundary clipping, monthly correct week count.
-- Current Rust test count: 125 (32 database + 37 timer + 40 task + 15 reports + 1 app build smoke).
+- Audio tests (2 tests) cover: WAV file header validation (RIFF/WAVE magic bytes), volume clamping (0.0–1.0 range).
+- Current Rust test count: 129 (34 database + 37 timer + 40 task + 15 reports + 2 audio + 1 app build smoke).
 
 ### Frontend Testing Notes
 - Repository tests mock the `../db` module with `vi.mock()` to avoid Tauri IPC calls.
@@ -199,20 +206,21 @@ Two jobs: `lint-and-test` then `build`.
 - Each test file must call `vi.mock("../db", ...)` before importing the repository module (use dynamic `await import()`).
 - Zod schema tests validate both well-formed data acceptance and malformed data rejection.
 - Component and store tests mock `@tauri-apps/api/core` (invoke), `@tauri-apps/api/event` (listen), and `@/lib/settingsRepository` via `vi.mock()`.
-- Timer store tests verify state transitions, event handling, and Tauri command invocations.
+- Timer store tests verify state transitions, event handling, Tauri command invocations, and alarm audio playback on timer completion (plays at configured volume, skips when volume is 0, loads volume from settings).
 - Component tests use `@testing-library/user-event` for user interaction simulation.
 - Task store tests verify CRUD command invocations, date selection, dialog state management, edit dialog state, soft delete/undo flow, reopen task, copy-to-day, load days with tasks, and origin date loading.
 - Task component tests (TaskPanel, TaskCreateDialog, SubtaskItem) verify rendering of all fields, user interactions (checkbox, actions menu, form submit), correct command invocations, edit mode, toggle completion/reopen, delete guards for completed/abandoned, soft delete (no immediate invoke), inline subtask editing, undo toast flow, copy-to-today visibility/invocation, and copied-from origin indicator display/hiding.
 - DateNavigator tests verify: "Today" rendering, formatted date for non-today, Today button visibility, past-day indicator, prev/next day navigation with store updates, calendar popover open/close, calendar date selection, and loading days with tasks on calendar open.
 - IntervalAssociationDialog tests (17 tests) cover: dialog visibility, empty task state, pending-only task filtering (completed/abandoned excluded), subtask rendering nested under parents, subtask-not-as-parent, checkbox toggle, parent auto-check/uncheck cascading, all-subtasks auto-check parent, confirm button disabled, complete_task invocations (subtasks before parents), pomodoroNumber passing, link_tasks_to_interval, skip dismissal, post-confirm reload.
-- SettingsPanel tests (12 tests) cover: trigger rendering, sheet open/close, loading values from repository, saving all settings to repository, reloading timer settings after save, preset button application (25/5, 35/7), timer-active warning display, sheet auto-close on save, break overtime checkbox rendering, break overtime setting save.
+- SettingsPanel tests (17 tests) cover: trigger rendering, sheet open/close, loading values from repository, saving all settings to repository, reloading timer settings after save, preset button application (25/5, 35/7), timer-active warning display, sheet auto-close on save, break overtime checkbox rendering, break overtime setting save, alarm volume slider rendering, volume percentage display, test alarm button rendering, test button playAlarmChime invocation, alarm volume setting save.
+- Audio tests (5 tests) cover: web audio playback with correct volume, multiple repetitions with gaps, volume clamping (0-1), fallback to Rust backend on web audio failure, fallback on play() rejection.
 - Report store tests (18 tests) cover: default tab, tab switching, loadDailySummary with correct params, explicit date param, setDailyDate, prevDay, nextDay, error handling, loadWeeklySummary, prevWeek, nextWeek, weekly error handling, loadMonthlySummary, explicit month param, setMonthStart, prevMonth, nextMonth, monthly error handling.
 - ReportsPage tests (5 tests) cover: heading rendering, tab rendering, default daily active, weekly tab switch, monthly tab switch.
 - DailySummary tests (15 tests) cover: pomodoro count, focus time, tasks ratio, interval types, jira key groups, tag badge, pomodoro indicator, Today display, Today button visibility/hiding, prev day navigation, loading state, empty intervals, empty tasks, timeline chart rendering.
 - WeeklySummary tests (11 tests) cover: total pomodoros, focus time, tasks completed, bar chart (mocked), daily breakdown, jira key groups, tag badge, prev week navigation, loading state, empty tasks, This Week button.
 - DailyTimeline tests (5 tests) cover: chart renders, empty state, dataset count, dataset labels, data-testid.
 - MonthlySummary tests (8 tests) cover: total pomodoros, focus time, tasks completed, bar chart (mocked), weekly breakdown section, prev month navigation, loading state, This Month button.
-- Current test count: 282 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 24 timer store + 27 task store + 18 report store + 10 timer display + 10 timer controls + 7 interval type selector + 28 task panel + 14 task create dialog + 15 subtask item + 4 task list + 12 date navigator + 17 interval association dialog + 12 settings panel + 5 reports page + 15 daily summary + 11 weekly summary + 5 daily timeline + 8 monthly summary).
+- Current test count: 296 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 28 timer store + 27 task store + 18 report store + 10 timer display + 10 timer controls + 7 interval type selector + 28 task panel + 14 task create dialog + 15 subtask item + 4 task list + 12 date navigator + 17 interval association dialog + 17 settings panel + 5 audio + 5 reports page + 15 daily summary + 11 weekly summary + 5 daily timeline + 8 monthly summary).
 
 ## Architecture Notes
 
@@ -287,6 +295,16 @@ Two jobs: `lint-and-test` then `build`.
 - DB settings keys: `work_duration_minutes`, `short_break_duration_minutes`, `long_break_duration_minutes`, `long_break_frequency` — stored as string values of integers (minutes).
 - Timer store `loadSettings()` reads `_minutes` keys and converts to seconds (e.g., `25` → `1500`).
 
+### Alarm Audio (Implemented — PR 10.1)
+- **Chime WAV** (`public/sounds/chime.wav`): two-tone bell (880Hz A5 + 1318.5Hz E6 with harmonics), ~0.8s duration, 16-bit mono PCM at 44100Hz. Generated via `scripts/generate-chime.mjs` (Node.js).
+- **Web Audio API** (`src/lib/audio.ts`): primary playback path using `HTMLAudioElement`. `playAlarmChime(volume, repetitions=3)` plays chime N times with 1-second gaps. Volume clamped to 0–1.
+- **Rust rodio fallback** (`src-tauri/src/audio.rs`): `play_alarm` Tauri command invoked when web audio fails (e.g., autoplay blocked, webview minimized). Uses `rodio` crate with `include_bytes!` to embed WAV at compile time. Playback runs on a spawned `std::thread` to avoid blocking.
+- **Timer integration** (`src/stores/timerStore.ts`): alarm plays on every `timer-complete` event (work, break, overtime) if `alarmVolume > 0`. Errors are silently caught (non-critical).
+- **Settings UI** (`src/components/SettingsPanel.tsx`): volume slider (0–100%, step 5%) with percentage display, "Test" button to preview chime at current volume.
+- **DB setting**: `alarm_volume` key in `user_settings` (type `real`, default `0.6`). Seeded by migration V3.
+- **Migration V3** (`src-tauri/src/database.rs`): `INSERT OR IGNORE` for `alarm_volume` setting with value `0.6`.
+- **Fallback strategy**: `playAlarmChime` tries web audio first → catches any error → falls back to `invoke("play_alarm")` (Rust rodio).
+
 ### Task History & Cross-Day Copy (Implemented — PR 8.1)
 - **Copy to Today**: past-day tasks can be copied to today via "Copy to Today" button in the actions menu. Uses `copy_task_to_day` Rust command which deep-copies the task and subtasks with `linked_from_task_id` set to the original task ID.
 - **Copied from indicator**: tasks copied from another day show a "Copied from [date]" clickable link that navigates to the original day. Uses `get_task_origin_dates` Rust command (INNER JOIN on `linked_from_task_id`).
@@ -311,7 +329,7 @@ Two jobs: `lint-and-test` then `build`.
 
 ### Database
 - SQLite with 4 tables: `user_settings`, `timer_intervals`, `tasks`, `task_interval_links`.
-- Schema managed via `PRAGMA user_version` (currently v2). Migration runner in `src-tauri/src/database.rs`. V2 adds `completed_in_pomodoro` column to tasks and `break_overtime_enabled` setting.
+- Schema managed via `PRAGMA user_version` (currently v3). Migration runner in `src-tauri/src/database.rs`. V2 adds `completed_in_pomodoro` column to tasks and `break_overtime_enabled` setting. V3 seeds `alarm_volume` default setting (0.6).
 - `PRAGMA foreign_keys = ON` set on every connection.
 - WAL mode for local paths; `journal_mode=DELETE` for cloud-synced paths (OneDrive/Dropbox/Google Drive/iCloud) — auto-detected by `is_cloud_synced_path()`.
 - DB file created at `$APPDATA/com.pomo.app/pomo.db` on first launch (Tauri setup hook).
@@ -322,7 +340,7 @@ Two jobs: `lint-and-test` then `build`.
 - Tasks support one level of subtasks via `parent_task_id` (enforced by `enforce_single_level_subtasks` trigger).
 - Cross-day task copies linked via `linked_from_task_id` (SET NULL on delete).
 - All timestamps are ISO 8601 UTC text.
-- Default settings seeded on first run: work=25min, short break=5min, long break=15min, frequency=4, Jira disabled, break overtime disabled.
+- Default settings seeded on first run: work=25min, short break=5min, long break=15min, frequency=4, Jira disabled, break overtime disabled, alarm volume=0.6.
 
 ### Jira Integration
 - Read-only integration — no data is written back to Jira.

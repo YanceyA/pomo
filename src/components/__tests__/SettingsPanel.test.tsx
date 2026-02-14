@@ -22,6 +22,10 @@ vi.mock("sonner", () => ({
   toast: vi.fn(),
 }));
 
+vi.mock("@/lib/audio", () => ({
+  playAlarmChime: vi.fn(async () => {}),
+}));
+
 const { useTimerStore } = await import("@/stores/timerStore");
 const { SettingsPanel } = await import("../SettingsPanel");
 
@@ -277,6 +281,84 @@ describe("SettingsPanel", () => {
 
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith("break_overtime_enabled", "true");
+    });
+  });
+
+  it("renders alarm volume slider", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Alarm volume")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("settings-volume-value")).toBeInTheDocument();
+  });
+
+  it("displays volume percentage", async () => {
+    mockGetAll.mockResolvedValue([
+      ...defaultSettings,
+      {
+        key: "alarm_volume",
+        value: "0.8",
+        type: "real",
+        updated_at: "2026-02-14T10:00:00Z",
+      },
+    ]);
+
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-volume-value")).toHaveTextContent(
+        "80%",
+      );
+    });
+  });
+
+  it("renders test alarm button", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-test-alarm")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("settings-test-alarm")).toHaveTextContent("Test");
+  });
+
+  it("test button calls playAlarmChime", async () => {
+    const { playAlarmChime } = await import("@/lib/audio");
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-test-alarm")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("settings-test-alarm"));
+
+    expect(playAlarmChime).toHaveBeenCalledWith(0.6, 1);
+  });
+
+  it("saves alarm volume setting", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-panel")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("settings-save"));
+
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith("alarm_volume", "0.6");
     });
   });
 });

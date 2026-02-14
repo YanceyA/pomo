@@ -797,7 +797,9 @@ main (protected, always releasable)
 
 **Spec coverage:** T-4, D-3, D-4, G-2, G-3
 
-### PR 10.1 — Alarm audio
+### PR 10.1 — Alarm audio ✅ COMPLETE
+
+**Status:** Done (2026-02-15). 296 Vitest tests + 129 Rust tests passed.
 
 **Scope:**
 - Bundle a calm chime sound (CC0/free license, ~2 seconds)
@@ -809,7 +811,7 @@ main (protected, always releasable)
 **Testing:**
 - Manual: alarm plays on interval completion
 - Manual: alarm plays when app is minimized
-- Vitest: audio trigger is called on timer-complete event (mock Audio)
+- Vitest: audio trigger is called on timer-complete event (mock Audio) ✅
 
 ### PR 10.2 — MCP documentation and DB path configuration
 

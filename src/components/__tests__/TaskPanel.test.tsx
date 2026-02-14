@@ -68,6 +68,8 @@ describe("TaskPanel", () => {
       editTask: null,
       pendingDelete: null,
       intervalCounts: {},
+      daysWithTasks: [],
+      originDates: {},
     });
   });
 
@@ -277,5 +279,62 @@ describe("TaskPanel", () => {
     expect(
       screen.queryByTestId("task-pomodoro-count-1"),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows 'Copy to Today' when viewing a past day", async () => {
+    const user = userEvent.setup();
+    useTaskStore.setState({ selectedDate: "2020-01-01" });
+    renderWithDnd(makeTask());
+
+    await user.click(screen.getByTestId("task-actions-toggle-1"));
+    expect(screen.getByTestId("task-copy-to-today-1")).toBeInTheDocument();
+  });
+
+  it("hides 'Copy to Today' when viewing today", async () => {
+    const user = userEvent.setup();
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, "0");
+    const day = String(today.getDate()).padStart(2, "0");
+    useTaskStore.setState({ selectedDate: `${year}-${month}-${day}` });
+    renderWithDnd(makeTask());
+
+    await user.click(screen.getByTestId("task-actions-toggle-1"));
+    expect(
+      screen.queryByTestId("task-copy-to-today-1"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("clicking 'Copy to Today' calls copy_task_to_day", async () => {
+    mockInvoke.mockResolvedValue(makeTask({ id: 2 }));
+    mockInvoke.mockResolvedValue([]);
+
+    const user = userEvent.setup();
+    useTaskStore.setState({ selectedDate: "2020-01-01" });
+    renderWithDnd(makeTask());
+
+    await user.click(screen.getByTestId("task-actions-toggle-1"));
+    await user.click(screen.getByTestId("task-copy-to-today-1"));
+
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "copy_task_to_day",
+      expect.objectContaining({ id: 1 }),
+    );
+  });
+
+  it("shows 'Copied from' indicator when origin date exists", () => {
+    useTaskStore.setState({ originDates: { 1: "2026-02-13" } });
+    renderWithDnd(makeTask());
+    const originEl = screen.getByTestId("task-origin-1");
+    expect(originEl).toBeInTheDocument();
+    expect(originEl.textContent).toContain("Copied from");
+    expect(originEl.textContent).toContain("Feb");
+    expect(originEl.textContent).toContain("13");
+  });
+
+  it("hides 'Copied from' when no origin date", () => {
+    useTaskStore.setState({ originDates: {} });
+    renderWithDnd(makeTask());
+    expect(screen.queryByTestId("task-origin-1")).not.toBeInTheDocument();
   });
 });

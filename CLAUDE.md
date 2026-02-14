@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** M6 complete — Settings UI (configurable timer durations, presets, persistence). M5 complete (timer-task association). M4 complete (task CRUD, subtasks, drag-and-drop, day scoping, edit/reopen/undo-delete). M3 complete (timer state machine + frontend). M2 complete (SQLite schema v1, TypeScript repository layer). M7 (Jira Integration) is next.
+**Current status:** M8 PR 8.1 complete — Past day review and task copying (calendar dot indicators, copy-to-today, copied-from indicator). M6 complete (settings UI). M5 complete (timer-task association). M4 complete (task CRUD, subtasks, drag-and-drop, day scoping, edit/reopen/undo-delete). M3 complete (timer state machine + frontend). M2 complete (SQLite schema v1, TypeScript repository layer). M7 (Jira Integration) is next.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -179,7 +179,10 @@ Two jobs: `lint-and-test` then `build`.
 - Timer tests (32 tests) cover: state machine transitions, invalid transition rejection, work count tracking, long break reset, serde roundtrip, DB interval operations (insert/complete/cancel), and full lifecycle cycles.
 - Task tests (24 tests) cover: CRUD operations, subtask creation, parent completion constraints (pending subtasks block completion, abandoned subtasks allow completion), status transitions, cloning with deep subtask copy, reorder position updates, serde roundtrip, reopen from completed/abandoned, reopen-when-pending error, and delete guard for completed/abandoned tasks.
 - Task-interval link tests (5 tests) cover: link creation, batch linking, INSERT OR IGNORE deduplication, interval count query with correct data, and day-scoped filtering.
-- Current Rust test count: 91 (29 database + 32 timer + 29 task + 1 app build smoke).
+- Copy-to-day tests (4 tests) cover: linked task creation with correct `linked_from_task_id`, deep subtask copy to target day, original task unchanged, and position at end of target day.
+- Days-with-tasks tests (3 tests) cover: distinct date aggregation, subtask exclusion, and date range filtering.
+- Origin dates tests (1 test) cover: INNER JOIN returning correct origin day_date for copied tasks.
+- Current Rust test count: 99 (29 database + 32 timer + 37 task + 1 app build smoke).
 
 ### Frontend Testing Notes
 - Repository tests mock the `../db` module with `vi.mock()` to avoid Tauri IPC calls.
@@ -189,12 +192,12 @@ Two jobs: `lint-and-test` then `build`.
 - Component and store tests mock `@tauri-apps/api/core` (invoke), `@tauri-apps/api/event` (listen), and `@/lib/settingsRepository` via `vi.mock()`.
 - Timer store tests verify state transitions, event handling, and Tauri command invocations.
 - Component tests use `@testing-library/user-event` for user interaction simulation.
-- Task store tests verify CRUD command invocations, date selection, dialog state management, edit dialog state, soft delete/undo flow, and reopen task.
-- Task component tests (TaskPanel, TaskCreateDialog, SubtaskItem) verify rendering of all fields, user interactions (checkbox, actions menu, form submit), correct command invocations, edit mode, toggle completion/reopen, delete guards for completed/abandoned, soft delete (no immediate invoke), inline subtask editing, and undo toast flow.
-- DateNavigator tests verify: "Today" rendering, formatted date for non-today, Today button visibility, past-day indicator, prev/next day navigation with store updates, calendar popover open/close, and calendar date selection.
+- Task store tests verify CRUD command invocations, date selection, dialog state management, edit dialog state, soft delete/undo flow, reopen task, copy-to-day, load days with tasks, and origin date loading.
+- Task component tests (TaskPanel, TaskCreateDialog, SubtaskItem) verify rendering of all fields, user interactions (checkbox, actions menu, form submit), correct command invocations, edit mode, toggle completion/reopen, delete guards for completed/abandoned, soft delete (no immediate invoke), inline subtask editing, undo toast flow, copy-to-today visibility/invocation, and copied-from origin indicator display/hiding.
+- DateNavigator tests verify: "Today" rendering, formatted date for non-today, Today button visibility, past-day indicator, prev/next day navigation with store updates, calendar popover open/close, calendar date selection, and loading days with tasks on calendar open.
 - IntervalAssociationDialog tests (9 tests) cover: dialog visibility, empty task state, parent-only task filtering, checkbox toggle, confirm button disabled state, link command invocation, skip dismissal, and post-confirm reload.
 - SettingsPanel tests (10 tests) cover: trigger rendering, sheet open/close, loading values from repository, saving all settings to repository, reloading timer settings after save, preset button application (25/5, 35/7), timer-active warning display, and sheet auto-close on save.
-- Current test count: 192 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 19 timer store + 23 task store + 8 timer display + 8 timer controls + 7 interval type selector + 24 task panel + 14 task create dialog + 15 subtask item + 4 task list + 11 date navigator + 9 interval association dialog + 10 settings panel).
+- Current test count: 201 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 19 timer store + 26 task store + 8 timer display + 8 timer controls + 7 interval type selector + 29 task panel + 14 task create dialog + 15 subtask item + 4 task list + 12 date navigator + 9 interval association dialog + 10 settings panel).
 
 ## Architecture Notes
 
@@ -248,7 +251,7 @@ Two jobs: `lint-and-test` then `build`.
 - **Timer store** (`timerStore.ts`) manages dialog state: `showAssociationDialog`, `lastCompletedIntervalId`, `showAssociation()`, `dismissAssociationDialog()`.
 - **Task store** (`taskStore.ts`) loads interval counts alongside tasks via `get_task_interval_counts` Rust command (joined query on `task_interval_links`). Stored as `intervalCounts: Record<number, number>`.
 - **TaskPanel** displays linked pomodoro count (e.g., "2 pomodoros") with a clock icon when `intervalCounts[task.id] > 0`.
-- Rust commands: `link_tasks_to_interval(task_ids, interval_id)`, `get_task_interval_counts(day_date)` — registered in `lib.rs`.
+- Rust commands: `link_tasks_to_interval(task_ids, interval_id)`, `get_task_interval_counts(day_date)`, `copy_task_to_day(id, target_date)`, `get_days_with_tasks(start_date, end_date)`, `get_task_origin_dates(day_date)` — registered in `lib.rs`.
 - Tasks remain independently completable — association does not auto-complete tasks (G-4, TK-12).
 
 ### Settings (Implemented — PR 6.1)
@@ -260,6 +263,13 @@ Two jobs: `lint-and-test` then `build`.
 - Shows "Changes will apply to the next interval" warning when timer is active.
 - DB settings keys: `work_duration_minutes`, `short_break_duration_minutes`, `long_break_duration_minutes`, `long_break_frequency` — stored as string values of integers (minutes).
 - Timer store `loadSettings()` reads `_minutes` keys and converts to seconds (e.g., `25` → `1500`).
+
+### Task History & Cross-Day Copy (Implemented — PR 8.1)
+- **Copy to Today**: past-day tasks can be copied to today via "Copy to Today" button in the actions menu. Uses `copy_task_to_day` Rust command which deep-copies the task and subtasks with `linked_from_task_id` set to the original task ID.
+- **Copied from indicator**: tasks copied from another day show a "Copied from [date]" clickable link that navigates to the original day. Uses `get_task_origin_dates` Rust command (INNER JOIN on `linked_from_task_id`).
+- **Calendar dot indicators**: the calendar popover in DateNavigator shows small dots on days that have tasks. Uses `get_days_with_tasks` Rust command with month-scoped date range. Dots load on popover open and on month change.
+- **Task store** (`taskStore.ts`) additions: `daysWithTasks: string[]`, `originDates: Record<number, string>`, `copyTaskToDay()`, `loadDaysWithTasks()`. `loadTasks()` now fetches origin dates alongside tasks and interval counts (3 parallel invokes).
+- **CalendarDayButton** (`calendar.tsx`): renders an absolute-positioned dot when `modifiers.hasTask` is truthy. Dot color inverts on selected days.
 
 ### Database
 - SQLite with 4 tables: `user_settings`, `timer_intervals`, `tasks`, `task_interval_links`.

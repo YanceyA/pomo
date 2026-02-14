@@ -24,6 +24,11 @@ interface TaskIntervalCountFromBackend {
   count: number;
 }
 
+interface TaskOriginDateFromBackend {
+  task_id: number;
+  origin_day_date: string;
+}
+
 interface PendingDelete {
   taskId: number;
   timeoutId: number;
@@ -39,6 +44,12 @@ export interface TaskStore {
 
   // Interval link counts (task_id → count)
   intervalCounts: Record<number, number>;
+
+  // Days with tasks (for calendar dots)
+  daysWithTasks: string[];
+
+  // Origin dates for copied tasks (task_id → origin day_date)
+  originDates: Record<number, string>;
 
   // Task creation dialog
   showCreateDialog: boolean;
@@ -71,6 +82,8 @@ export interface TaskStore {
   abandonTask: (id: number) => Promise<void>;
   reopenTask: (id: number) => Promise<void>;
   cloneTask: (id: number) => Promise<void>;
+  copyTaskToDay: (id: number, targetDate: string) => Promise<void>;
+  loadDaysWithTasks: (startDate: string, endDate: string) => Promise<void>;
   reorderTasks: (taskIds: number[]) => Promise<void>;
   openCreateDialog: (parentId?: number | null) => void;
   closeCreateDialog: () => void;
@@ -111,6 +124,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   selectedDate: todayString(),
   isLoading: false,
   intervalCounts: {},
+  daysWithTasks: [],
+  originDates: {},
   showCreateDialog: false,
   createParentId: null,
   showEditDialog: false,
@@ -121,9 +136,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const dayDate = date ?? get().selectedDate;
     set({ isLoading: true });
     try {
-      const [tasks, counts] = await Promise.all([
+      const [tasks, counts, origins] = await Promise.all([
         invoke<TaskFromBackend[]>("get_tasks_by_date", { dayDate }),
         invoke<TaskIntervalCountFromBackend[]>("get_task_interval_counts", {
+          dayDate,
+        }),
+        invoke<TaskOriginDateFromBackend[]>("get_task_origin_dates", {
           dayDate,
         }),
       ]);
@@ -131,9 +149,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       for (const c of counts) {
         intervalCounts[c.task_id] = c.count;
       }
+      const originDates: Record<number, string> = {};
+      for (const o of origins) {
+        originDates[o.task_id] = o.origin_day_date;
+      }
       set({
         tasks: tasks.map(backendToTask),
         intervalCounts,
+        originDates,
         isLoading: false,
       });
     } catch {
@@ -232,6 +255,20 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   cloneTask: async (id) => {
     await invoke<TaskFromBackend>("clone_task", { id });
     await get().loadTasks();
+  },
+
+  copyTaskToDay: async (id, targetDate) => {
+    await invoke<TaskFromBackend>("copy_task_to_day", { id, targetDate });
+    toast("Task copied to today");
+    await get().loadTasks();
+  },
+
+  loadDaysWithTasks: async (startDate, endDate) => {
+    const daysWithTasks = await invoke<string[]>("get_days_with_tasks", {
+      startDate,
+      endDate,
+    });
+    set({ daysWithTasks });
   },
 
   reorderTasks: async (taskIds) => {

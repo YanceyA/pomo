@@ -1,5 +1,5 @@
 import { CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -47,11 +47,44 @@ function formatDateHeader(dateStr: string): string {
   });
 }
 
+function getMonthRange(date: Date): { start: string; end: string } {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const start = dateToDateString(new Date(year, month, 1));
+  const end = dateToDateString(new Date(year, month + 1, 0));
+  return { start, end };
+}
+
 export function DateNavigator() {
   const selectedDate = useTaskStore((s) => s.selectedDate);
   const setSelectedDate = useTaskStore((s) => s.setSelectedDate);
+  const daysWithTasks = useTaskStore((s) => s.daysWithTasks);
+  const loadDaysWithTasks = useTaskStore((s) => s.loadDaysWithTasks);
 
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(
+    dateStringToDate(selectedDate),
+  );
+
+  const loadDotsForMonth = useCallback(
+    (month: Date) => {
+      const { start, end } = getMonthRange(month);
+      loadDaysWithTasks(start, end);
+    },
+    [loadDaysWithTasks],
+  );
+
+  useEffect(() => {
+    if (calendarOpen) {
+      loadDotsForMonth(calendarMonth);
+    }
+  }, [calendarOpen, calendarMonth, loadDotsForMonth]);
+
+  const handleMonthChange = (month: Date) => {
+    setCalendarMonth(month);
+  };
+
+  const taskDayDates = daysWithTasks.map(dateStringToDate);
 
   const today = todayString();
   const isToday = selectedDate === today;
@@ -109,6 +142,9 @@ export function DateNavigator() {
               selected={dateStringToDate(selectedDate)}
               onSelect={handleCalendarSelect}
               defaultMonth={dateStringToDate(selectedDate)}
+              month={calendarMonth}
+              onMonthChange={handleMonthChange}
+              modifiers={{ hasTask: taskDayDates }}
               data-testid="date-calendar"
             />
           </PopoverContent>

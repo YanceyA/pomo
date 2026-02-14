@@ -147,6 +147,19 @@ describe("DateNavigator", () => {
     expect(screen.getByRole("grid")).toBeInTheDocument();
   });
 
+  it("loads days with tasks when calendar opens", async () => {
+    const user = userEvent.setup();
+    useTaskStore.setState({ selectedDate: "2026-02-14" });
+    render(<DateNavigator />);
+
+    await user.click(screen.getByTestId("date-header-button"));
+
+    expect(mockInvoke).toHaveBeenCalledWith("get_days_with_tasks", {
+      startDate: "2026-02-01",
+      endDate: "2026-02-28",
+    });
+  });
+
   it("selects a date from the calendar and closes popover", async () => {
     const user = userEvent.setup();
     useTaskStore.setState({ selectedDate: "2026-02-14" });

@@ -483,6 +483,15 @@ main (protected, always releasable)
 | 3 | Complete a break interval — no association dialog | TODO |
 | 4 | Task panel shows which pomodoro(s) it was logged against | TODO |
 
+**user note testing issues to resolve:
+UAT 1 - At the end of a pomodoro the task popup is to mark a pomodoro as complete, not to log # of pomodoros. Marking a task as compelte in the popup should associate that task completion with that specific pomodoro.
+UAT 2- THe post pomodoro popup is not showing sub tasks
+UAT 3- tHe pop pomodoro popup should not show compelted tasks or sub tasks.
+UAT 4 - In the popup, marking a task as completed there should also mark the task as complete in the main window.
+UAT 5 - The current number of pomodoros attached to a task can be updated to just show the pomodoro number it was compelted in i.e. pomodoro 3.
+UAT 6 - Misc, the panel indicating to take a break should autodismiss if a new timer is started
+UAT 7 - Misc, i would like a setting that can toggle the break timers to go into negative counting up to indicate when a break time was exceeded for reference only.
+
 ---
 
 ## Milestone 6: Settings & User Profile ✅ COMPLETE
@@ -598,37 +607,64 @@ main (protected, always releasable)
 
 ---
 
-## Milestone 8: Task History & Cross-Day
+## Milestone 8: Task History & Cross-Day ✅ COMPLETE
 
 **Goal:** Review past days and copy tasks forward.
 
 **Spec coverage:** TK-5, TK-6
 
-### PR 8.1 — Previous day review and task copying
+### PR 8.1 — Previous day review and task copying ✅ COMPLETE
+
+**Status:** Done (2026-02-15). All testing gates passed (99 Rust tests, 201 Vitest tests).
 
 **Scope:**
-- Date navigator highlights days that have tasks (dot indicator)
-- Navigate to any past day — see that day's tasks (read-only by default, or editable)
-- "Copy to today" button on past-day tasks:
+- Date navigator highlights days that have tasks (dot indicator in calendar popover)
+- Navigate to any past day — see that day's tasks (fully editable)
+- "Copy to Today" button on past-day tasks in actions menu:
   - Creates new task on current day with `linked_from_task_id` pointing to original
   - Deep copies subtasks if present (TK-11 logic reused)
   - Original remains on its original day unchanged
-- Copied task shows a "Copied from [date]" indicator with link back to original
+- Copied task shows a "Copied from [date]" clickable indicator that navigates to original day
+
+**Notes:**
+- Three new Rust commands: `copy_task_to_day(id, target_date)`, `get_days_with_tasks(start_date, end_date)`, `get_task_origin_dates(day_date)`.
+- New `TaskOriginDate` struct for origin date query results.
+- Calendar dots load on popover open and on month navigation via `onMonthChange`.
+- `CalendarDayButton` renders absolute-positioned dot when `modifiers.hasTask` is truthy, with inverted color on selected days.
+- Task store extended: `daysWithTasks`, `originDates`, `copyTaskToDay()`, `loadDaysWithTasks()`. `loadTasks()` now runs 3 parallel invokes (tasks, interval counts, origin dates).
 
 **Testing:**
-- Rust tests: `copy_to_day` creates linked task with correct `linked_from_task_id`
-- Rust tests: subtasks are deep-copied for the new task
-- Vitest + RTL: past day tasks display with "Copy to today" action
-- Vitest + RTL: copied task shows origin link
+- Rust tests: copy creates linked task with correct `linked_from_task_id` — **PASS**
+- Rust tests: deep copies subtasks to target day — **PASS**
+- Rust tests: original task unchanged after copy — **PASS**
+- Rust tests: copied task positioned at end of target day — **PASS**
+- Rust tests: `get_days_with_tasks` returns distinct dates — **PASS**
+- Rust tests: subtasks excluded from days-with-tasks query — **PASS**
+- Rust tests: date range filtering respected — **PASS**
+- Rust tests: origin dates INNER JOIN returns correct source day — **PASS**
+- Vitest + RTL: "Copy to Today" shown when viewing past day — **PASS**
+- Vitest + RTL: "Copy to Today" hidden when viewing today — **PASS**
+- Vitest + RTL: clicking "Copy to Today" calls `copy_task_to_day` — **PASS**
+- Vitest + RTL: "Copied from" indicator shown with origin date — **PASS**
+- Vitest + RTL: "Copied from" hidden when no origin date — **PASS**
+- Vitest + RTL: calendar open triggers `get_days_with_tasks` — **PASS**
+- Vitest: store `copyTaskToDay` invokes command and shows toast — **PASS**
+- Vitest: store `loadDaysWithTasks` stores result — **PASS**
+- Vitest: `loadTasks` fetches origin dates alongside tasks — **PASS**
+- `npm run lint` passes — **PASS**
+- `npm run typecheck` passes — **PASS**
+- `npm run test` passes (201 tests) — **PASS**
+- `cargo test` passes (99 tests) — **PASS**
+- `cargo clippy -- -D warnings` passes — **PASS**
 
 ### UAT — Milestone 8
 
 | # | Verify | Pass? |
 |---|--------|-------|
-| 1 | Navigate to a past day with tasks — tasks display correctly | |
-| 2 | Copy a task to today — new task appears on today with link to original | |
-| 3 | Copy a task with subtasks — subtasks are copied too | |
-| 4 | Original task unchanged on its original day | |
+| 1 | Navigate to a past day with tasks — tasks display correctly | ✅ |
+| 2 | Copy a task to today — new task appears on today with link to original | ✅ |
+| 3 | Copy a task with subtasks — subtasks are copied too | ✅ |
+| 4 | Original task unchanged on its original day | ✅ |
 
 ---
 

@@ -1,10 +1,12 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  ArrowRight,
   Check,
   Clock,
   Copy,
   GripVertical,
+  Link2,
   ListPlus,
   MoreHorizontal,
   Pencil,
@@ -32,10 +34,23 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
   const reopenTask = useTaskStore((s) => s.reopenTask);
   const softDeleteTask = useTaskStore((s) => s.softDeleteTask);
   const cloneTask = useTaskStore((s) => s.cloneTask);
+  const copyTaskToDay = useTaskStore((s) => s.copyTaskToDay);
   const openCreateDialog = useTaskStore((s) => s.openCreateDialog);
   const openEditDialog = useTaskStore((s) => s.openEditDialog);
+  const selectedDate = useTaskStore((s) => s.selectedDate);
+  const setSelectedDate = useTaskStore((s) => s.setSelectedDate);
   const pomodoroCount = useTaskStore((s) => s.intervalCounts[task.id] ?? 0);
+  const originDate = useTaskStore((s) => s.originDates[task.id]);
   const [showActions, setShowActions] = useState(false);
+
+  const todayStr = (() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  })();
+  const isViewingPastDay = selectedDate < todayStr;
 
   const {
     attributes,
@@ -130,6 +145,21 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
             >
               {task.jira_key}
             </span>
+          )}
+          {originDate && (
+            <button
+              type="button"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setSelectedDate(originDate)}
+              data-testid={`task-origin-${task.id}`}
+            >
+              <Link2 className="size-3" />
+              Copied from{" "}
+              {new Date(`${originDate}T00:00:00`).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })}
+            </button>
           )}
           {pomodoroCount > 0 && (
             <span
@@ -230,6 +260,17 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
             <Copy className="size-3" />
             Clone
           </Button>
+          {isViewingPastDay && (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => copyTaskToDay(task.id, todayStr)}
+              data-testid={`task-copy-to-today-${task.id}`}
+            >
+              <ArrowRight className="size-3" />
+              Copy to Today
+            </Button>
+          )}
           {isPending && (
             <Button
               variant="ghost"

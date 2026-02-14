@@ -436,6 +436,139 @@ pub fn get_task_interval_counts(
     Ok(counts)
 }
 
+// ── Task origin date type ────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskOriginDate {
+    pub task_id: i64,
+    pub origin_day_date: String,
+}
+
+// ── Cross-day copy & history commands ────────────────────────
+
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn copy_task_to_day(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    target_date: String,
+) -> Result<Task, String> {
+    let conn = open_db(&state.db_path)?;
+    let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
+    // Fetch original
+    let original = conn
+        .query_row(
+            &format!("SELECT {TASK_COLUMNS} FROM tasks WHERE id = ?1"),
+            [id],
+            row_to_task,
+        )
+        .map_err(|e| format!("Task not found: {e}"))?;
+
+    // Get next position on the target day
+    let max_pos: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE day_date = ?1 AND parent_task_id IS NULL",
+            [&target_date],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to query max position: {e}"))?;
+
+    // Copy parent task with linked_from_task_id
+    conn.execute(
+        "INSERT INTO tasks (title, day_date, status, linked_from_task_id, jira_key, tag, position, created_at, updated_at) \
+         VALUES (?1, ?2, 'pending', ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![original.title, target_date, id, original.jira_key, original.tag, max_pos + 1, now, now],
+    )
+    .map_err(|e| format!("Failed to copy task: {e}"))?;
+
+    let new_id = conn.last_insert_rowid();
+
+    // Deep copy subtasks
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT {TASK_COLUMNS} FROM tasks WHERE parent_task_id = ?1"
+        ))
+        .map_err(|e| format!("Failed to prepare subtask query: {e}"))?;
+
+    let subtasks: Vec<Task> = stmt
+        .query_map([id], row_to_task)
+        .map_err(|e| format!("Failed to query subtasks: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to read subtasks: {e}"))?;
+
+    for sub in subtasks {
+        conn.execute(
+            "INSERT INTO tasks (title, day_date, status, parent_task_id, jira_key, tag, position, created_at, updated_at) \
+             VALUES (?1, ?2, 'pending', ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![sub.title, target_date, new_id, sub.jira_key, sub.tag, sub.position, now, now],
+        )
+        .map_err(|e| format!("Failed to copy subtask: {e}"))?;
+    }
+
+    conn.query_row(
+        &format!("SELECT {TASK_COLUMNS} FROM tasks WHERE id = ?1"),
+        [new_id],
+        row_to_task,
+    )
+    .map_err(|e| format!("Failed to fetch copied task: {e}"))
+}
+
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn get_days_with_tasks(
+    state: tauri::State<'_, AppState>,
+    start_date: String,
+    end_date: String,
+) -> Result<Vec<String>, String> {
+    let conn = open_db(&state.db_path)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT DISTINCT day_date FROM tasks \
+             WHERE day_date >= ?1 AND day_date <= ?2 AND parent_task_id IS NULL \
+             ORDER BY day_date",
+        )
+        .map_err(|e| format!("Failed to prepare query: {e}"))?;
+
+    let dates = stmt
+        .query_map(rusqlite::params![start_date, end_date], |row| row.get(0))
+        .map_err(|e| format!("Failed to query days with tasks: {e}"))?
+        .collect::<Result<Vec<String>, _>>()
+        .map_err(|e| format!("Failed to read days: {e}"))?;
+
+    Ok(dates)
+}
+
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn get_task_origin_dates(
+    state: tauri::State<'_, AppState>,
+    day_date: String,
+) -> Result<Vec<TaskOriginDate>, String> {
+    let conn = open_db(&state.db_path)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.id, origin.day_date \
+             FROM tasks t \
+             INNER JOIN tasks origin ON origin.id = t.linked_from_task_id \
+             WHERE t.day_date = ?1 AND t.parent_task_id IS NULL",
+        )
+        .map_err(|e| format!("Failed to prepare origin date query: {e}"))?;
+
+    let origins = stmt
+        .query_map([&day_date], |row| {
+            Ok(TaskOriginDate {
+                task_id: row.get(0)?,
+                origin_day_date: row.get(1)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query origin dates: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to read origin dates: {e}"))?;
+
+    Ok(origins)
+}
+
 // ── Tests ───────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1079,5 +1212,225 @@ mod tests {
 
         assert_eq!(counts.len(), 1);
         assert_eq!(counts[0].0, task1);
+    }
+
+    // ── Copy to day tests ──────────────────────────────────
+
+    fn copy_task_to_day_db(conn: &Connection, id: i64, target_date: &str) -> Task {
+        let now = "2026-02-14T12:00:00Z";
+
+        let original = get_task(conn, id);
+
+        let max_pos: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(position), -1) FROM tasks WHERE day_date = ?1 AND parent_task_id IS NULL",
+                [target_date],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        conn.execute(
+            "INSERT INTO tasks (title, day_date, status, linked_from_task_id, jira_key, tag, position, created_at, updated_at) \
+             VALUES (?1, ?2, 'pending', ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![original.title, target_date, id, original.jira_key, original.tag, max_pos + 1, now, now],
+        )
+        .unwrap();
+
+        let new_id = conn.last_insert_rowid();
+
+        // Copy subtasks
+        let mut stmt = conn
+            .prepare(&format!("SELECT {TASK_COLUMNS} FROM tasks WHERE parent_task_id = ?1"))
+            .unwrap();
+        let subs: Vec<Task> = stmt
+            .query_map([id], row_to_task)
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        for sub in &subs {
+            conn.execute(
+                "INSERT INTO tasks (title, day_date, status, parent_task_id, jira_key, tag, position, created_at, updated_at) \
+                 VALUES (?1, ?2, 'pending', ?3, ?4, ?5, ?6, ?7, ?8)",
+                rusqlite::params![sub.title, target_date, new_id, sub.jira_key, sub.tag, sub.position, now, now],
+            )
+            .unwrap();
+        }
+
+        get_task(conn, new_id)
+    }
+
+    #[test]
+    fn copy_to_day_creates_linked_task() {
+        let conn = setup_test_db();
+        let id = insert_task(&conn, "Original", "2026-02-13", 0);
+
+        let copied = copy_task_to_day_db(&conn, id, "2026-02-14");
+
+        assert_eq!(copied.title, "Original");
+        assert_eq!(copied.day_date, "2026-02-14");
+        assert_eq!(copied.linked_from_task_id, Some(id));
+        assert_eq!(copied.status, "pending");
+    }
+
+    #[test]
+    fn copy_to_day_deep_copies_subtasks() {
+        let conn = setup_test_db();
+        let parent_id = insert_task(&conn, "Parent", "2026-02-13", 0);
+        insert_subtask(&conn, "Sub 1", "2026-02-13", parent_id);
+        insert_subtask(&conn, "Sub 2", "2026-02-13", parent_id);
+
+        let copied = copy_task_to_day_db(&conn, parent_id, "2026-02-14");
+
+        let subs: Vec<Task> = conn
+            .prepare(&format!("SELECT {TASK_COLUMNS} FROM tasks WHERE parent_task_id = ?1"))
+            .unwrap()
+            .query_map([copied.id], row_to_task)
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(subs.len(), 2);
+        assert_eq!(subs[0].day_date, "2026-02-14");
+        assert_eq!(subs[1].day_date, "2026-02-14");
+        assert_eq!(subs[0].parent_task_id, Some(copied.id));
+    }
+
+    #[test]
+    fn copy_to_day_original_unchanged() {
+        let conn = setup_test_db();
+        let id = insert_task(&conn, "Original", "2026-02-13", 0);
+
+        copy_task_to_day_db(&conn, id, "2026-02-14");
+
+        let original = get_task(&conn, id);
+        assert_eq!(original.day_date, "2026-02-13");
+        assert_eq!(original.title, "Original");
+    }
+
+    #[test]
+    fn copy_to_day_positions_at_end() {
+        let conn = setup_test_db();
+        insert_task(&conn, "Existing 1", "2026-02-14", 0);
+        insert_task(&conn, "Existing 2", "2026-02-14", 1);
+        let source_id = insert_task(&conn, "Source", "2026-02-13", 0);
+
+        let copied = copy_task_to_day_db(&conn, source_id, "2026-02-14");
+
+        assert_eq!(copied.position, 2);
+    }
+
+    // ── Days with tasks tests ──────────────────────────────
+
+    #[test]
+    fn get_days_with_tasks_returns_distinct_dates() {
+        let conn = setup_test_db();
+        insert_task(&conn, "Task 1", "2026-02-14", 0);
+        insert_task(&conn, "Task 2", "2026-02-14", 1);
+        insert_task(&conn, "Task 3", "2026-02-15", 0);
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT day_date FROM tasks \
+                 WHERE day_date >= ?1 AND day_date <= ?2 AND parent_task_id IS NULL \
+                 ORDER BY day_date",
+            )
+            .unwrap();
+        let dates: Vec<String> = stmt
+            .query_map(["2026-02-01", "2026-02-28"], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(dates.len(), 2);
+        assert_eq!(dates[0], "2026-02-14");
+        assert_eq!(dates[1], "2026-02-15");
+    }
+
+    #[test]
+    fn get_days_with_tasks_excludes_subtasks() {
+        let conn = setup_test_db();
+        let parent_id = insert_task(&conn, "Parent", "2026-02-14", 0);
+        // Subtask on a different day (shouldn't happen normally, but tests the filter)
+        conn.execute(
+            "INSERT INTO tasks (title, day_date, position, parent_task_id) VALUES (?1, ?2, 0, ?3)",
+            rusqlite::params!["Sub", "2026-02-15", parent_id],
+        )
+        .unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT day_date FROM tasks \
+                 WHERE day_date >= ?1 AND day_date <= ?2 AND parent_task_id IS NULL \
+                 ORDER BY day_date",
+            )
+            .unwrap();
+        let dates: Vec<String> = stmt
+            .query_map(["2026-02-01", "2026-02-28"], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Only the parent's day should appear
+        assert_eq!(dates.len(), 1);
+        assert_eq!(dates[0], "2026-02-14");
+    }
+
+    #[test]
+    fn get_days_with_tasks_respects_date_range() {
+        let conn = setup_test_db();
+        insert_task(&conn, "Jan", "2026-01-15", 0);
+        insert_task(&conn, "Feb", "2026-02-14", 0);
+        insert_task(&conn, "Mar", "2026-03-10", 0);
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT day_date FROM tasks \
+                 WHERE day_date >= ?1 AND day_date <= ?2 AND parent_task_id IS NULL \
+                 ORDER BY day_date",
+            )
+            .unwrap();
+        let dates: Vec<String> = stmt
+            .query_map(["2026-02-01", "2026-02-28"], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(dates.len(), 1);
+        assert_eq!(dates[0], "2026-02-14");
+    }
+
+    // ── Origin dates tests ─────────────────────────────────
+
+    #[test]
+    fn origin_dates_returns_linked_task_day() {
+        let conn = setup_test_db();
+        let original_id = insert_task(&conn, "Original", "2026-02-13", 0);
+
+        // Create a copied task with linked_from_task_id
+        conn.execute(
+            "INSERT INTO tasks (title, day_date, status, linked_from_task_id, position) VALUES (?1, ?2, 'pending', ?3, 0)",
+            rusqlite::params!["Original", "2026-02-14", original_id],
+        )
+        .unwrap();
+        let copied_id = conn.last_insert_rowid();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT t.id, origin.day_date \
+                 FROM tasks t \
+                 INNER JOIN tasks origin ON origin.id = t.linked_from_task_id \
+                 WHERE t.day_date = ?1 AND t.parent_task_id IS NULL",
+            )
+            .unwrap();
+        let origins: Vec<(i64, String)> = stmt
+            .query_map(["2026-02-14"], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(origins.len(), 1);
+        assert_eq!(origins[0].0, copied_id);
+        assert_eq!(origins[0].1, "2026-02-13");
     }
 }

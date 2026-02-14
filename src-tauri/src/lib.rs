@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod database;
+pub mod reports;
 pub mod tasks;
 pub mod timer;
 
@@ -29,6 +30,8 @@ pub fn run() {
             tasks::copy_task_to_day,
             tasks::get_days_with_tasks,
             tasks::get_task_origin_dates,
+            reports::get_daily_summary,
+            reports::get_weekly_summary,
         ])
         .setup(|app| {
             let app_data_dir = app
@@ -73,6 +76,8 @@ mod tests {
                 crate::tasks::copy_task_to_day,
                 crate::tasks::get_days_with_tasks,
                 crate::tasks::get_task_origin_dates,
+                crate::reports::get_daily_summary,
+                crate::reports::get_weekly_summary,
             ])
             .build(tauri::test::mock_context(noop_assets()))
             .expect("failed to build mock Tauri app");

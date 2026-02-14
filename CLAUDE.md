@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** M8 PR 8.1 complete — Past day review and task copying (calendar dot indicators, copy-to-today, copied-from indicator). M6 complete (settings UI). M5 PR 5.2 complete — UAT fixes (dialog redesign, completed_in_pomodoro, break overtime, auto-dismiss). M4 complete (task CRUD, subtasks, drag-and-drop, day scoping, edit/reopen/undo-delete). M3 complete (timer state machine + frontend). M2 complete (SQLite schema v2, TypeScript repository layer). M7 (Jira Integration) is next.
+**Current status:** M9 PR 9.1 complete — Reports page with daily/weekly summaries, bar chart, task groups. M8 PR 8.1 complete — Past day review and task copying (calendar dot indicators, copy-to-today, copied-from indicator). M6 complete (settings UI). M5 PR 5.2 complete — UAT fixes (dialog redesign, completed_in_pomodoro, break overtime, auto-dismiss). M4 complete (task CRUD, subtasks, drag-and-drop, day scoping, edit/reopen/undo-delete). M3 complete (timer state machine + frontend). M2 complete (SQLite schema v2, TypeScript repository layer). M7 (Jira Integration) skipped due to IT/tech blockers.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -74,7 +74,8 @@ pomo/
 │   │   │   ├── popover.tsx     # shadcn/ui Popover component (Radix)
 │   │   │   ├── sheet.tsx       # shadcn/ui Sheet component (Radix Dialog)
 │   │   │   ├── slider.tsx     # shadcn/ui Slider component (Radix)
-│   │   │   └── sonner.tsx     # shadcn/ui Sonner toast component
+│   │   │   ├── sonner.tsx     # shadcn/ui Sonner toast component
+│   │   │   └── tabs.tsx       # shadcn/ui Tabs component (Radix)
 │   │   ├── TimerPage.tsx       # Main timer page — combines display, controls, selector
 │   │   ├── TimerDisplay.tsx    # Large countdown (MM:SS) with SVG progress ring
 │   │   ├── TimerControls.tsx   # Start, Pause/Resume, Cancel buttons
@@ -87,10 +88,14 @@ pomo/
 │   │   ├── TaskPanelOverlay.tsx # Simplified task card for drag overlay preview
 │   │   ├── TaskCreateDialog.tsx # Dialog for creating tasks and subtasks
 │   │   ├── SubtaskItem.tsx     # Compact subtask row with checkbox and delete
+│   │   ├── ReportsPage.tsx     # Reports page with Daily/Weekly tabs
+│   │   ├── DailySummary.tsx    # Daily report: stats, interval list, task groups
+│   │   ├── WeeklySummary.tsx   # Weekly report: stats, bar chart, daily breakdown, task groups
 │   │   └── __tests__/          # Component tests (mock Tauri APIs via vi.mock)
 │   ├── stores/
 │   │   ├── timerStore.ts       # Zustand store for timer state, Tauri event subscriptions
 │   │   ├── taskStore.ts        # Zustand store for task CRUD, day selection, dialog state
+│   │   ├── reportStore.ts      # Zustand store for report tab, daily/weekly summary state
 │   │   └── __tests__/          # Store tests
 │   ├── lib/
 │   │   ├── utils.ts            # cn() utility (clsx + tailwind-merge)
@@ -101,7 +106,7 @@ pomo/
 │   │   ├── tasksRepository.ts        # CRUD for tasks table (incl. clone, copyToDay)
 │   │   ├── taskIntervalLinksRepository.ts  # CRUD for task_interval_links table
 │   │   └── __tests__/          # Repository + schema tests (mock DB via vi.mock)
-│   ├── App.tsx                 # Root component — renders TimerPage
+│   ├── App.tsx                 # Root component — Timer/Reports view switching
 │   ├── App.test.tsx            # Smoke test — app renders heading + start button
 │   ├── test-setup.ts           # Vitest setup — jest-dom matchers
 │   ├── main.tsx                # React entry point
@@ -113,6 +118,7 @@ pomo/
 │   │   ├── lib.rs              # Tauri app builder, DB init + timer/task state in setup hook, smoke test
 │   │   ├── timer.rs            # Timer state machine, Tauri commands, background tick task
 │   │   ├── tasks.rs            # Task CRUD Tauri commands (create, update, delete, complete, abandon, clone, reorder)
+│   │   ├── reports.rs          # Report Tauri commands (get_daily_summary, get_weekly_summary)
 │   │   └── database.rs         # SQLite migration runner, schema v1, cloud-sync detection
 │   ├── .cargo/
 │   │   └── config.toml         # Clippy lint configuration (pedantic)
@@ -182,7 +188,8 @@ Two jobs: `lint-and-test` then `build`.
 - Copy-to-day tests (4 tests) cover: linked task creation with correct `linked_from_task_id`, deep subtask copy to target day, original task unchanged, and position at end of target day.
 - Days-with-tasks tests (3 tests) cover: distinct date aggregation, subtask exclusion, and date range filtering.
 - Origin dates tests (1 test) cover: INNER JOIN returning correct origin day_date for copied tasks.
-- Current Rust test count: 110 (32 database + 37 timer + 40 task + 1 app build smoke).
+- Report tests (11 tests) cover: empty day summary, work-only pomodoro counting, interval chronological ordering, task counts excluding subtasks, jira key grouping with NULLS LAST, day exclusion, empty week, cross-day weekly aggregation, week-spanning task groups, subtask exclusion from groups, cancelled interval exclusion.
+- Current Rust test count: 121 (32 database + 37 timer + 40 task + 11 reports + 1 app build smoke).
 
 ### Frontend Testing Notes
 - Repository tests mock the `../db` module with `vi.mock()` to avoid Tauri IPC calls.
@@ -197,7 +204,11 @@ Two jobs: `lint-and-test` then `build`.
 - DateNavigator tests verify: "Today" rendering, formatted date for non-today, Today button visibility, past-day indicator, prev/next day navigation with store updates, calendar popover open/close, calendar date selection, and loading days with tasks on calendar open.
 - IntervalAssociationDialog tests (17 tests) cover: dialog visibility, empty task state, pending-only task filtering (completed/abandoned excluded), subtask rendering nested under parents, subtask-not-as-parent, checkbox toggle, parent auto-check/uncheck cascading, all-subtasks auto-check parent, confirm button disabled, complete_task invocations (subtasks before parents), pomodoroNumber passing, link_tasks_to_interval, skip dismissal, post-confirm reload.
 - SettingsPanel tests (12 tests) cover: trigger rendering, sheet open/close, loading values from repository, saving all settings to repository, reloading timer settings after save, preset button application (25/5, 35/7), timer-active warning display, sheet auto-close on save, break overtime checkbox rendering, break overtime setting save.
-- Current test count: 220 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 24 timer store + 27 task store + 10 timer display + 10 timer controls + 7 interval type selector + 28 task panel + 14 task create dialog + 15 subtask item + 4 task list + 12 date navigator + 17 interval association dialog + 12 settings panel).
+- Report store tests (12 tests) cover: default tab, tab switching, loadDailySummary with correct params, explicit date param, setDailyDate, prevDay, nextDay, error handling, loadWeeklySummary, prevWeek, nextWeek, weekly error handling.
+- ReportsPage tests (4 tests) cover: heading rendering, tab rendering, default daily active, weekly tab switch.
+- DailySummary tests (14 tests) cover: pomodoro count, focus time, tasks ratio, interval types, jira key groups, tag badge, pomodoro indicator, Today display, Today button visibility/hiding, prev day navigation, loading state, empty intervals, empty tasks.
+- WeeklySummary tests (11 tests) cover: total pomodoros, focus time, tasks completed, bar chart (mocked), daily breakdown, jira key groups, tag badge, prev week navigation, loading state, empty tasks, This Week button.
+- Current test count: 261 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 24 timer store + 27 task store + 12 report store + 10 timer display + 10 timer controls + 7 interval type selector + 28 task panel + 14 task create dialog + 15 subtask item + 4 task list + 12 date navigator + 17 interval association dialog + 12 settings panel + 4 reports page + 14 daily summary + 11 weekly summary).
 
 ## Architecture Notes
 
@@ -278,6 +289,17 @@ Two jobs: `lint-and-test` then `build`.
 - **Calendar dot indicators**: the calendar popover in DateNavigator shows small dots on days that have tasks. Uses `get_days_with_tasks` Rust command with month-scoped date range. Dots load on popover open and on month change.
 - **Task store** (`taskStore.ts`) additions: `daysWithTasks: string[]`, `originDates: Record<number, string>`, `copyTaskToDay()`, `loadDaysWithTasks()`. `loadTasks()` now fetches origin dates alongside tasks and interval counts (3 parallel invokes).
 - **CalendarDayButton** (`calendar.tsx`): renders an absolute-positioned dot when `modifiers.hasTask` is truthy. Dot color inverts on selected days.
+
+### Reporting (Implemented — PR 9.1)
+- **Rust commands** in `src-tauri/src/reports.rs`: `get_daily_summary(day_date)` and `get_weekly_summary(week_start)`.
+- Daily summary: pomodoro count (completed work intervals), total focus minutes, tasks completed/total (excluding subtasks), ordered interval list, task groups by `jira_key` (NULLS LAST).
+- Weekly summary: 7-day stats (Mon–Sun) with per-day pomodoro count, focus minutes, tasks completed. Aggregate totals. Task groups across the full week.
+- SQL patterns: `date(start_time) = ?1` for day filtering, `BETWEEN ?1 AND ?2` for week ranges, `date(?1, '+N day')` for date arithmetic.
+- **Zustand store** (`src/stores/reportStore.ts`): manages `activeTab` ("daily"/"weekly"), date navigation state (`dailyDate`, `weekStart`), loading flags, and summary data. Lazy-loads data on tab switch. Helper functions: `todayStr()`, `getMonday()`, `addDays()`.
+- **ReportsPage** (`src/components/ReportsPage.tsx`): shadcn/ui Tabs with Daily/Weekly tabs. Connected to `reportStore.activeTab`.
+- **DailySummary** (`src/components/DailySummary.tsx`): date navigation (prev/next/Today), stat cards (pomodoros, focus time, tasks ratio), interval list with type labels and color coding, task groups by Jira key with status indicators.
+- **WeeklySummary** (`src/components/WeeklySummary.tsx`): week navigation (prev/next/This Week), stat cards, Chart.js `<Bar>` chart (pomodoros per day), daily breakdown rows, task groups. Registers `CategoryScale`, `LinearScale`, `BarElement`, `Tooltip`, `Legend` at module level.
+- **App navigation** (`src/App.tsx`): Timer/Reports view toggle buttons (lucide-react `Timer` and `BarChart3` icons). Conditional rendering of Timer+TaskList vs ReportsPage.
 
 ### Database
 - SQLite with 4 tables: `user_settings`, `timer_intervals`, `tasks`, `task_interval_links`.

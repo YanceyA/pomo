@@ -67,6 +67,71 @@ export const taskIntervalLinkSchema = z.object({
 
 export type TaskIntervalLink = z.infer<typeof taskIntervalLinkSchema>;
 
+// --- Report types ---
+
+export const intervalSummarySchema = z.object({
+  id: z.number(),
+  interval_type: z.string(),
+  start_time: z.string(),
+  end_time: z.string().nullable(),
+  duration_seconds: z.number(),
+  planned_duration_seconds: z.number(),
+  status: z.string(),
+});
+
+export type IntervalSummary = z.infer<typeof intervalSummarySchema>;
+
+export const taskSummarySchema = z.object({
+  id: z.number(),
+  title: z.string(),
+  status: z.string(),
+  jira_key: z.string().nullable(),
+  tag: z.string().nullable(),
+  completed_in_pomodoro: z.number().nullable(),
+});
+
+export type TaskSummary = z.infer<typeof taskSummarySchema>;
+
+export const taskGroupSchema = z.object({
+  jira_key: z.string().nullable(),
+  tasks: z.array(taskSummarySchema),
+});
+
+export type TaskGroup = z.infer<typeof taskGroupSchema>;
+
+export const dailySummarySchema = z.object({
+  date: z.string(),
+  pomodoro_count: z.number(),
+  total_focus_minutes: z.number(),
+  tasks_completed: z.number(),
+  tasks_total: z.number(),
+  intervals: z.array(intervalSummarySchema),
+  task_groups: z.array(taskGroupSchema),
+});
+
+export type DailySummary = z.infer<typeof dailySummarySchema>;
+
+export const dailyStatSchema = z.object({
+  date: z.string(),
+  pomodoro_count: z.number(),
+  focus_minutes: z.number(),
+  tasks_completed: z.number(),
+});
+
+export type DailyStat = z.infer<typeof dailyStatSchema>;
+
+export const weeklySummarySchema = z.object({
+  week_start: z.string(),
+  week_end: z.string(),
+  daily_stats: z.array(dailyStatSchema),
+  total_pomodoros: z.number(),
+  total_focus_minutes: z.number(),
+  total_tasks_completed: z.number(),
+  task_groups: z.array(taskGroupSchema),
+});
+
+export type WeeklySummary = z.infer<typeof weeklySummarySchema>;
+
 // --- Input types (for create/update operations) ---
 
 export interface CreateIntervalInput {

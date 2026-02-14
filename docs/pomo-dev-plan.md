@@ -791,9 +791,9 @@ main (protected, always releasable)
 
 ---
 
-## Milestone 10: Audio, MCP & Polish
+## Milestone 10: Audio & MCP
 
-**Goal:** Alarm sounds, MCP documentation, final UI polish, and release packaging.
+**Goal:** Alarm sounds and MCP documentation.
 
 **Spec coverage:** T-4, D-3, D-4, G-2, G-3
 
@@ -827,12 +827,41 @@ main (protected, always releasable)
 - Rust tests: journal mode switches correctly based on path
 - Manual: MCP server connects to Pomo DB and can query tasks
 
-### PR 10.3 — UI polish and final touches
+### UAT — Milestone 10
+
+| # | Verify | Pass? |
+|---|--------|-------|
+| 1 | Timer completes — calm chime plays | |
+| 2 | Minimize app, timer completes — alarm still audible | |
+| 3 | Configure DB path — app uses new location | |
+| 4 | MCP server can query the Pomo database | |
+
+---
+
+## Milestone 11: UI Overhaul
+
+**Goal:** Comprehensive UI redesign — consistent layout, improved visual design, empty/loading/error states, and overall UX refinement. Starts with planning and mockups before implementation.
+
+**Spec coverage:** G-1, G-2
+
+### PR 11.1 — UI design planning and mockups
 
 **Scope:**
+- Review all existing screens and identify design issues
+- Create mockups/wireframes for the redesigned UI
+- Define consistent spacing, typography, and color palette
+- Plan component-level changes across all views
+- Document design decisions and rationale
+
+**Testing:**
+- Review: mockups approved before implementation begins
+
+### PR 11.2+ — Implementation PRs (TBD after planning)
+
+**Scope:** To be determined based on PR 11.1 planning output. Expected areas:
 - Consistent spacing, typography, and color palette across all views
 - Empty states (no tasks today, no intervals this week, etc.)
-- Loading states for async operations (Jira validation, DB queries)
+- Loading states for async operations (DB queries, etc.)
 - Error states and toast notifications for failures
 - App icon and window title
 - Keyboard shortcut architecture prep (G-1) — no shortcuts yet, but ensure nothing blocks future addition
@@ -842,7 +871,21 @@ main (protected, always releasable)
 - Manual: all empty states render meaningfully
 - Manual: error scenarios show appropriate feedback
 
-### PR 10.4 — Installer and release configuration
+### UAT — Milestone 11
+
+| # | Verify | Pass? |
+|---|--------|-------|
+| 1 | All screens have consistent spacing, typography, and color | |
+| 2 | All screens have appropriate empty, loading, and error states | |
+| 3 | App icon and window title are correct | |
+
+---
+
+## Milestone 12: Installer & Release
+
+**Goal:** Production packaging and release configuration.
+
+### PR 12.1 — Installer and release configuration
 
 **Scope:**
 - Configure `tauri.conf.json` for production build:
@@ -858,16 +901,12 @@ main (protected, always releasable)
 - App launches, DB initializes, all features work
 - Uninstaller removes the app cleanly
 
-### UAT — Milestone 10
+### UAT — Milestone 12
 
 | # | Verify | Pass? |
 |---|--------|-------|
-| 1 | Timer completes — calm chime plays | |
-| 2 | Minimize app, timer completes — alarm still audible | |
-| 3 | Configure DB path — app uses new location | |
-| 4 | MCP server can query the Pomo database | |
-| 5 | Install from NSIS installer on clean machine — app works | |
-| 6 | All screens have appropriate empty, loading, and error states | |
+| 1 | Install from NSIS installer on clean machine — app works | |
+| 2 | Uninstaller removes the app cleanly | |
 
 ---
 
@@ -976,8 +1015,10 @@ Run this against the final build before tagging v1.0.
 | M7: Jira | 2 | Medium |
 | M8: Task History | 1 | Small-Medium |
 | M9: Reporting | 2 | Medium |
-| M10: Audio/MCP/Polish | 4 | Medium |
-| **Total** | **~20 PRs** | |
+| M10: Audio & MCP | 2 | Small-Medium |
+| M11: UI Overhaul | TBD | Medium-Large |
+| M12: Installer & Release | 1 | Small |
+| **Total** | **~23+ PRs** | |
 
 > Time estimates are intentionally omitted per project conventions. The milestone ordering reflects dependencies — each builds on the previous.
 

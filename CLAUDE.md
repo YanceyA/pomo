@@ -360,7 +360,7 @@ Two jobs: `lint-and-test` then `build`.
 - **DB singleton:** `src/lib/db.ts` exports `getDb()` which lazily connects to `sqlite:pomo.db` via `Database.load()`.
 - **Test mocking:** Repository tests mock `../db` module via `vi.mock()` in each test file, with shared mock helpers in `__tests__/db.mock.ts`. Repository modules must be imported dynamically after `vi.mock()` setup: `const repo = await import("../repository")`.
 
-## Development Plan (10 Milestones)
+## Development Plan (12 Milestones)
 
 1. **M1: Scaffolding** — Tauri + React + tooling setup, CI pipeline
 2. **M2: Database** — SQLite schema, migrations, TypeScript repository layer
@@ -371,7 +371,9 @@ Two jobs: `lint-and-test` then `build`.
 7. **M7: Jira** — Credential storage, ticket validation, task linking
 8. **M8: Task History** — Past day review, copy tasks forward
 9. **M9: Reporting** — Daily/weekly/monthly summaries, visual timeline
-10. **M10: Polish** — Audio, MCP docs, UI polish, installer
+10. **M10: Audio & MCP** — Alarm sounds, MCP documentation
+11. **M11: UI Overhaul** — Comprehensive UI redesign, mockups then implementation
+12. **M12: Installer & Release** — NSIS installer, release config
 
 Branch naming: `feat/M{n}-{description}` (e.g., `feat/M1-scaffolding`). All PRs target `main`.
 

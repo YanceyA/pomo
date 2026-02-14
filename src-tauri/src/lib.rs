@@ -1,5 +1,6 @@
 use tauri::Manager;
 
+pub mod config;
 mod database;
 pub mod reports;
 pub mod tasks;
@@ -8,8 +9,13 @@ pub mod audio;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init());
+
+    #[cfg(feature = "dialog")]
+    let builder = builder.plugin(tauri_plugin_dialog::init());
+
+    builder
         .plugin(tauri_plugin_sql::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             timer::start_timer,
@@ -35,13 +41,16 @@ pub fn run() {
             reports::get_weekly_summary,
             reports::get_monthly_summary,
             audio::play_alarm,
+            config::get_db_info,
+            config::change_db_path,
+            config::reset_db_path,
         ])
         .setup(|app| {
             let app_data_dir = app
                 .path()
                 .app_data_dir()
                 .expect("failed to resolve app data directory");
-            let db_path = app_data_dir.join("pomo.db");
+            let db_path = config::resolve_db_path(&app_data_dir);
             database::initialize(&db_path)?;
             app.manage(timer::AppState::new(db_path));
             Ok(())
@@ -83,6 +92,9 @@ mod tests {
                 crate::reports::get_weekly_summary,
                 crate::reports::get_monthly_summary,
                 crate::audio::play_alarm,
+                crate::config::get_db_info,
+                crate::config::change_db_path,
+                crate::config::reset_db_path,
             ])
             .build(tauri::test::mock_context(noop_assets()))
             .expect("failed to build mock Tauri app");

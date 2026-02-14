@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "pomo": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sqlite",
+        "C:\\Users\\yance\\AppData\\Roaming\\com.pomo.app\\pomo.db"
+      ]
+    }
+  }
+}

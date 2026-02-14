@@ -813,18 +813,19 @@ main (protected, always releasable)
 - Manual: alarm plays when app is minimized
 - Vitest: audio trigger is called on timer-complete event (mock Audio) ✅
 
-### PR 10.2 — MCP documentation and DB path configuration
+### PR 10.2 — MCP documentation and DB path configuration ✅ COMPLETE
 
 **Scope:**
 - DB path configuration in settings (file picker dialog via Tauri)
 - Cloud-sync detection: if path is in OneDrive/Dropbox folder, use `journal_mode=DELETE`
 - Document MCP server setup in README or docs:
-  - How to configure `@anthropic-ai/mcp-server-sqlite` with Pomo's DB path
+  - How to configure `@modelcontextprotocol/server-sqlite` with Pomo's DB path
   - Example queries an AI agent can run
 - Ensure WAL mode allows concurrent MCP reads
 
 **Testing:**
-- Rust tests: journal mode switches correctly based on path
+- Rust tests: config module (7 tests), cloud-sync detection (existing) ✅
+- Vitest: SettingsPanel DB path section (11 new tests, 28 total) ✅
 - Manual: MCP server connects to Pomo DB and can query tasks
 
 ### UAT — Milestone 10

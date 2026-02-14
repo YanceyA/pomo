@@ -1,4 +1,13 @@
-import { Settings, Volume2 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import * as dialog from "@tauri-apps/plugin-dialog";
+import {
+  Cloud,
+  Database,
+  FolderOpen,
+  RotateCcw,
+  Settings,
+  Volume2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -24,6 +33,14 @@ interface SettingsFormValues {
   longBreakFrequency: number;
   breakOvertimeEnabled: boolean;
   alarmVolume: number;
+}
+
+interface DbInfo {
+  path: string;
+  is_custom: boolean;
+  is_cloud_synced: boolean;
+  journal_mode: string;
+  default_path: string;
 }
 
 const PRESETS: {
@@ -90,7 +107,7 @@ export function SettingsPanel() {
   const timerState = useTimerStore((s) => s.state);
   const loadSettings = useTimerStore((s) => s.loadSettings);
 
-  const [open, setOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const [form, setForm] = useState<SettingsFormValues>({
     workDuration: 25,
     shortBreakDuration: 5,
@@ -101,9 +118,11 @@ export function SettingsPanel() {
   });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [dbInfo, setDbInfo] = useState<DbInfo | null>(null);
+  const [dbPathChanged, setDbPathChanged] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!isOpen) return;
     (async () => {
       const settings = await settingsRepository.getAll();
       const map = new Map(settings.map((s) => [s.key, s.value]));
@@ -117,8 +136,12 @@ export function SettingsPanel() {
         alarmVolume: Number(map.get("alarm_volume")) || 0.6,
       });
       setError(null);
+      setDbPathChanged(false);
+
+      const info: DbInfo = await invoke("get_db_info");
+      setDbInfo(info);
     })();
-  }, [open]);
+  }, [isOpen]);
 
   const handleChange = (field: keyof SettingsFormValues, raw: string) => {
     const num = raw === "" ? 0 : Number.parseInt(raw, 10);
@@ -174,7 +197,7 @@ export function SettingsPanel() {
       );
       await settingsRepository.set("alarm_volume", String(clamped.alarmVolume));
       await loadSettings();
-      setOpen(false);
+      setIsOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save settings.");
     } finally {
@@ -182,10 +205,42 @@ export function SettingsPanel() {
     }
   };
 
+  const handleChangeDbPath = async () => {
+    const selected = await dialog.open({
+      title: "Select Database Folder",
+      directory: true,
+    });
+    if (!selected) return;
+
+    try {
+      const info: DbInfo = await invoke("change_db_path", {
+        newDirectory: selected,
+      });
+      setDbInfo(info);
+      setDbPathChanged(true);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to change database path.",
+      );
+    }
+  };
+
+  const handleResetDbPath = async () => {
+    try {
+      const info: DbInfo = await invoke("reset_db_path");
+      setDbInfo(info);
+      setDbPathChanged(true);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to reset database path.",
+      );
+    }
+  };
+
   const isTimerActive = timerState !== "idle";
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={isOpen} onOpenChange={setIsOpen}>
       <SheetTrigger asChild>
         <Button
           variant="ghost"
@@ -358,6 +413,76 @@ export function SettingsPanel() {
                 </Button>
               ))}
             </div>
+          </div>
+
+          <div
+            className="flex flex-col gap-3"
+            data-testid="settings-db-section"
+          >
+            <Label>
+              <span className="flex items-center gap-2">
+                <Database className="h-4 w-4" />
+                Database Location
+              </span>
+            </Label>
+            {dbInfo && (
+              <>
+                <p
+                  className="text-xs text-muted-foreground break-all"
+                  data-testid="settings-db-path"
+                >
+                  {dbInfo.path}
+                </p>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {dbInfo.is_cloud_synced ? (
+                    <span
+                      className="flex items-center gap-1 text-blue-500"
+                      data-testid="settings-db-cloud"
+                    >
+                      <Cloud className="h-3 w-3" />
+                      Cloud-synced (journal_mode=DELETE)
+                    </span>
+                  ) : (
+                    <span data-testid="settings-db-local">
+                      Local (journal_mode=WAL)
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="settings-db-change"
+                    type="button"
+                    onClick={handleChangeDbPath}
+                  >
+                    <FolderOpen className="mr-1 h-3 w-3" />
+                    Change...
+                  </Button>
+                  {dbInfo.is_custom && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      data-testid="settings-db-reset"
+                      type="button"
+                      onClick={handleResetDbPath}
+                    >
+                      <RotateCcw className="mr-1 h-3 w-3" />
+                      Reset to Default
+                    </Button>
+                  )}
+                </div>
+                {dbPathChanged && (
+                  <p
+                    className="text-sm text-amber-600"
+                    data-testid="settings-db-restart"
+                  >
+                    Restart the app for the new database location to take
+                    effect.
+                  </p>
+                )}
+              </>
+            )}
           </div>
 
           {error && (

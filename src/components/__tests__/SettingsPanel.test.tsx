@@ -11,6 +11,12 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async () => vi.fn()),
 }));
 
+const mockDialogOpen = vi.fn();
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  default: { open: (...args: unknown[]) => mockDialogOpen(...args) },
+  open: (...args: unknown[]) => mockDialogOpen(...args),
+}));
+
 const mockGetAll = vi.fn();
 const mockSet = vi.fn();
 vi.mock("@/lib/settingsRepository", () => ({
@@ -56,11 +62,23 @@ const defaultSettings = [
   },
 ];
 
+const defaultDbInfo = {
+  path: "C:\\Users\\user\\AppData\\Roaming\\com.pomo.app\\pomo.db",
+  is_custom: false,
+  is_cloud_synced: false,
+  journal_mode: "WAL",
+  default_path: "C:\\Users\\user\\AppData\\Roaming\\com.pomo.app\\pomo.db",
+};
+
 describe("SettingsPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetAll.mockResolvedValue(defaultSettings);
     mockSet.mockResolvedValue(undefined);
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_db_info") return Promise.resolve(defaultDbInfo);
+      return Promise.resolve(undefined);
+    });
     useTimerStore.setState({
       state: "idle",
       intervalType: "work",
@@ -360,5 +378,229 @@ describe("SettingsPanel", () => {
     await waitFor(() => {
       expect(mockSet).toHaveBeenCalledWith("alarm_volume", "0.6");
     });
+  });
+
+  // ── Database Location tests ────────────────────────────────
+
+  it("renders database location section", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-db-section")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Database Location")).toBeInTheDocument();
+  });
+
+  it("displays current database path", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-db-path")).toHaveTextContent(
+        "C:\\Users\\user\\AppData\\Roaming\\com.pomo.app\\pomo.db",
+      );
+    });
+  });
+
+  it("shows local journal mode for non-cloud path", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-db-local")).toHaveTextContent(
+        "Local (journal_mode=WAL)",
+      );
+    });
+  });
+
+  it("shows cloud-synced indicator for cloud path", async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_db_info")
+        return Promise.resolve({
+          ...defaultDbInfo,
+          path: "C:\\Users\\user\\OneDrive\\pomo.db",
+          is_cloud_synced: true,
+          journal_mode: "DELETE",
+          is_custom: true,
+        });
+      return Promise.resolve(undefined);
+    });
+
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-db-cloud")).toHaveTextContent(
+        "Cloud-synced (journal_mode=DELETE)",
+      );
+    });
+  });
+
+  it("renders change button", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-db-change")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("settings-db-change")).toHaveTextContent(
+      "Change...",
+    );
+  });
+
+  it("shows reset button only when using custom path", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-db-change")).toBeInTheDocument();
+    });
+    // Default path — no reset button
+    expect(screen.queryByTestId("settings-db-reset")).not.toBeInTheDocument();
+  });
+
+  it("shows reset button when custom path is set", async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_db_info")
+        return Promise.resolve({ ...defaultDbInfo, is_custom: true });
+      return Promise.resolve(undefined);
+    });
+
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-db-reset")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("settings-db-reset")).toHaveTextContent(
+      "Reset to Default",
+    );
+  });
+
+  it("change button opens folder dialog and calls change_db_path", async () => {
+    const newDbInfo = {
+      ...defaultDbInfo,
+      path: "D:\\Data\\pomo.db",
+      is_custom: true,
+    };
+    mockDialogOpen.mockResolvedValue("D:\\Data");
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_db_info") return Promise.resolve(defaultDbInfo);
+      if (cmd === "change_db_path") return Promise.resolve(newDbInfo);
+      return Promise.resolve(undefined);
+    });
+
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-db-change")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("settings-db-change"));
+
+    await waitFor(() => {
+      expect(mockDialogOpen).toHaveBeenCalledWith({
+        title: "Select Database Folder",
+        directory: true,
+      });
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("change_db_path", {
+      newDirectory: "D:\\Data",
+    });
+  });
+
+  it("shows restart message after path change", async () => {
+    const newDbInfo = {
+      ...defaultDbInfo,
+      path: "D:\\Data\\pomo.db",
+      is_custom: true,
+    };
+    mockDialogOpen.mockResolvedValue("D:\\Data");
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_db_info") return Promise.resolve(defaultDbInfo);
+      if (cmd === "change_db_path") return Promise.resolve(newDbInfo);
+      return Promise.resolve(undefined);
+    });
+
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-db-change")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("settings-db-change"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-db-restart")).toHaveTextContent(
+        "Restart the app for the new database location to take effect.",
+      );
+    });
+  });
+
+  it("reset button calls reset_db_path and shows restart message", async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_db_info")
+        return Promise.resolve({ ...defaultDbInfo, is_custom: true });
+      if (cmd === "reset_db_path") return Promise.resolve(defaultDbInfo);
+      return Promise.resolve(undefined);
+    });
+
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-db-reset")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("settings-db-reset"));
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("reset_db_path");
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-db-restart")).toBeInTheDocument();
+    });
+  });
+
+  it("does not call change_db_path when dialog is cancelled", async () => {
+    mockDialogOpen.mockResolvedValue(null);
+
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-db-change")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("settings-db-change"));
+
+    await waitFor(() => {
+      expect(mockDialogOpen).toHaveBeenCalled();
+    });
+    expect(mockInvoke).not.toHaveBeenCalledWith(
+      "change_db_path",
+      expect.anything(),
+    );
   });
 });

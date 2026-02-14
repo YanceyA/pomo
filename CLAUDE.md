@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** M10 PR 10.1 complete — Alarm audio (chime WAV, Web Audio API + rodio fallback, volume setting, test button). M9 complete — PR 9.1 Reports page with daily/weekly summaries; PR 9.2 daily visual timeline and monthly view. M8 PR 8.1 complete — Past day review and task copying (calendar dot indicators, copy-to-today, copied-from indicator). M6 complete (settings UI). M5 PR 5.2 complete — UAT fixes (dialog redesign, completed_in_pomodoro, break overtime, auto-dismiss). M4 complete (task CRUD, subtasks, drag-and-drop, day scoping, edit/reopen/undo-delete). M3 complete (timer state machine + frontend). M2 complete (SQLite schema v2, TypeScript repository layer). M7 (Jira Integration) skipped due to IT/tech blockers.
+**Current status:** M10 complete — PR 10.1 Alarm audio (chime WAV, Web Audio API + rodio fallback, volume setting, test button); PR 10.2 DB path configuration (file picker, cloud-sync detection, config.json persistence) and MCP documentation. M9 complete — PR 9.1 Reports page with daily/weekly summaries; PR 9.2 daily visual timeline and monthly view. M8 PR 8.1 complete — Past day review and task copying (calendar dot indicators, copy-to-today, copied-from indicator). M6 complete (settings UI). M5 PR 5.2 complete — UAT fixes (dialog redesign, completed_in_pomodoro, break overtime, auto-dismiss). M4 complete (task CRUD, subtasks, drag-and-drop, day scoping, edit/reopen/undo-delete). M3 complete (timer state machine + frontend). M2 complete (SQLite schema v2, TypeScript repository layer). M7 (Jira Integration) skipped due to IT/tech blockers.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -47,20 +47,20 @@ Database:           rusqlite 0.32 (bundled, migration runner + Rust tests)
 Async runtime:      tokio 1 (rt, time, sync, macros — for timer background task)
 Date/time:          chrono 0.4 (ISO 8601 timestamp generation in Rust)
 Audio:              Web Audio API (HTMLAudioElement) + rodio 0.19 (Rust fallback, WAV only)
+File dialog:        tauri-plugin-dialog 2 (Rust) + @tauri-apps/plugin-dialog (npm)
 ```
 
 ### Not Yet Installed (Future Milestones)
 ```
 Jira HTTP:          reqwest (Rust) — M7
 Credentials:        keyring crate — M7
-MCP:                @anthropic-ai/mcp-server-sqlite — M10
 ```
 
 ## Project Structure (Actual)
 
 ```
 pomo/
-├── docs/                       # Spec, tech decisions, dev plan
+├── docs/                       # Spec, tech decisions, dev plan, MCP setup guide
 ├── src/                        # React frontend
 │   ├── components/
 │   │   ├── ui/
@@ -123,6 +123,7 @@ pomo/
 │   │   ├── tasks.rs            # Task CRUD Tauri commands (create, update, delete, complete, abandon, clone, reorder)
 │   │   ├── reports.rs          # Report Tauri commands (get_daily_summary, get_weekly_summary)
 │   │   ├── audio.rs            # Alarm audio playback via rodio (Rust fallback for Web Audio)
+│   │   ├── config.rs           # DB path config (config.json, get_db_info, change_db_path, reset_db_path)
 │   │   └── database.rs         # SQLite migration runner, schema v1-v3, cloud-sync detection
 │   ├── .cargo/
 │   │   └── config.toml         # Clippy lint configuration (pedantic)
@@ -177,8 +178,8 @@ npm run test:watch           # Vitest (watch mode)
 npm run test:coverage        # Vitest + v8 coverage
 npm run lint                 # Biome check (lint + format)
 npm run lint:fix             # Biome auto-fix (lint + format)
-cargo test                   # Rust tests (from src-tauri/)
-cargo clippy -- -D warnings  # Clippy (from src-tauri/)
+cargo test --no-default-features   # Rust tests (from src-tauri/, excludes dialog to avoid DLL crash)
+cargo clippy -- -D warnings        # Clippy (from src-tauri/)
 ```
 
 ### CI Pipeline (.github/workflows/ci.yml)
@@ -187,6 +188,7 @@ Two jobs: `lint-and-test` then `build`.
 
 ### Rust Testing Notes
 - Tauri's `common-controls-v6` default feature is disabled to allow `cargo test` on Windows (causes `STATUS_ENTRYPOINT_NOT_FOUND` in test binaries).
+- `tauri-plugin-dialog` is an optional dependency behind a `dialog` Cargo feature (default-enabled). Tests must run with `cargo test --no-default-features` because `rfd` (dialog's dependency) links Windows common controls that crash test binaries with `STATUS_ENTRYPOINT_NOT_FOUND`. The dialog plugin is conditionally registered with `#[cfg(feature = "dialog")]` in `lib.rs`. The `dialog:default` permission is NOT in `capabilities/default.json` — the plugin handles permissions internally.
 - Tests use `tauri::test::mock_builder()` with `MockRuntime` instead of real WebView2.
 - The `test` feature is enabled on the `tauri` dependency.
 - Database tests use `rusqlite::Connection::open_in_memory()` with `PRAGMA foreign_keys = ON` for full schema validation (28 tests covering migrations v1-v3, tables, indexes, trigger, settings, constraints, foreign keys, and cloud path detection).
@@ -198,7 +200,8 @@ Two jobs: `lint-and-test` then `build`.
 - Origin dates tests (1 test) cover: INNER JOIN returning correct origin day_date for copied tasks.
 - Report tests (15 tests) cover: empty day summary, work-only pomodoro counting, interval chronological ordering, task counts excluding subtasks, jira key grouping with NULLS LAST, day exclusion, empty week, cross-day weekly aggregation, week-spanning task groups, subtask exclusion from groups, cancelled interval exclusion, monthly empty, monthly multi-week aggregation, monthly boundary clipping, monthly correct week count.
 - Audio tests (2 tests) cover: WAV file header validation (RIFF/WAVE magic bytes), volume clamping (0.0–1.0 range).
-- Current Rust test count: 129 (34 database + 37 timer + 40 task + 15 reports + 2 audio + 1 app build smoke).
+- Config tests (7 tests) cover: read default config (no file), invalid JSON fallback, write/read round-trip, resolve default path, resolve custom path, resolve empty custom path (uses default), reset config clears custom path.
+- Current Rust test count: 136 (34 database + 37 timer + 40 task + 15 reports + 2 audio + 7 config + 1 app build smoke).
 
 ### Frontend Testing Notes
 - Repository tests mock the `../db` module with `vi.mock()` to avoid Tauri IPC calls.
@@ -212,7 +215,7 @@ Two jobs: `lint-and-test` then `build`.
 - Task component tests (TaskPanel, TaskCreateDialog, SubtaskItem) verify rendering of all fields, user interactions (checkbox, actions menu, form submit), correct command invocations, edit mode, toggle completion/reopen, delete guards for completed/abandoned, soft delete (no immediate invoke), inline subtask editing, undo toast flow, copy-to-today visibility/invocation, and copied-from origin indicator display/hiding.
 - DateNavigator tests verify: "Today" rendering, formatted date for non-today, Today button visibility, past-day indicator, prev/next day navigation with store updates, calendar popover open/close, calendar date selection, and loading days with tasks on calendar open.
 - IntervalAssociationDialog tests (17 tests) cover: dialog visibility, empty task state, pending-only task filtering (completed/abandoned excluded), subtask rendering nested under parents, subtask-not-as-parent, checkbox toggle, parent auto-check/uncheck cascading, all-subtasks auto-check parent, confirm button disabled, complete_task invocations (subtasks before parents), pomodoroNumber passing, link_tasks_to_interval, skip dismissal, post-confirm reload.
-- SettingsPanel tests (17 tests) cover: trigger rendering, sheet open/close, loading values from repository, saving all settings to repository, reloading timer settings after save, preset button application (25/5, 35/7), timer-active warning display, sheet auto-close on save, break overtime checkbox rendering, break overtime setting save, alarm volume slider rendering, volume percentage display, test alarm button rendering, test button playAlarmChime invocation, alarm volume setting save.
+- SettingsPanel tests (17 tests — original): trigger rendering, sheet open/close, loading values from repository, saving all settings to repository, reloading timer settings after save, preset button application (25/5, 35/7), timer-active warning display, sheet auto-close on save, break overtime checkbox rendering, break overtime setting save, alarm volume slider rendering, volume percentage display, test alarm button rendering, test button playAlarmChime invocation, alarm volume setting save. (See PR 10.2 additions below.)
 - Audio tests (5 tests) cover: web audio playback with correct volume, multiple repetitions with gaps, volume clamping (0-1), fallback to Rust backend on web audio failure, fallback on play() rejection.
 - Report store tests (18 tests) cover: default tab, tab switching, loadDailySummary with correct params, explicit date param, setDailyDate, prevDay, nextDay, error handling, loadWeeklySummary, prevWeek, nextWeek, weekly error handling, loadMonthlySummary, explicit month param, setMonthStart, prevMonth, nextMonth, monthly error handling.
 - ReportsPage tests (5 tests) cover: heading rendering, tab rendering, default daily active, weekly tab switch, monthly tab switch.
@@ -220,7 +223,8 @@ Two jobs: `lint-and-test` then `build`.
 - WeeklySummary tests (11 tests) cover: total pomodoros, focus time, tasks completed, bar chart (mocked), daily breakdown, jira key groups, tag badge, prev week navigation, loading state, empty tasks, This Week button.
 - DailyTimeline tests (5 tests) cover: chart renders, empty state, dataset count, dataset labels, data-testid.
 - MonthlySummary tests (8 tests) cover: total pomodoros, focus time, tasks completed, bar chart (mocked), weekly breakdown section, prev month navigation, loading state, This Month button.
-- Current test count: 296 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 28 timer store + 27 task store + 18 report store + 10 timer display + 10 timer controls + 7 interval type selector + 28 task panel + 14 task create dialog + 15 subtask item + 4 task list + 12 date navigator + 17 interval association dialog + 17 settings panel + 5 audio + 5 reports page + 15 daily summary + 11 weekly summary + 5 daily timeline + 8 monthly summary).
+- SettingsPanel tests (28 tests) cover: trigger rendering, sheet open/close, loading values from repository, saving all settings to repository, reloading timer settings after save, preset button application (25/5, 35/7), timer-active warning display, sheet auto-close on save, break overtime checkbox rendering, break overtime setting save, alarm volume slider rendering, volume percentage display, test alarm button rendering, test button playAlarmChime invocation, alarm volume setting save, DB section rendering, DB path display, local journal mode indicator, cloud-synced indicator, change button rendering, reset button visibility (default vs custom), change dialog + change_db_path invocation, restart message after path change, reset_db_path invocation + restart message, dialog cancellation handling.
+- Current test count: 307 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 28 timer store + 27 task store + 18 report store + 10 timer display + 10 timer controls + 7 interval type selector + 28 task panel + 14 task create dialog + 15 subtask item + 4 task list + 12 date navigator + 17 interval association dialog + 28 settings panel + 5 audio + 5 reports page + 15 daily summary + 11 weekly summary + 5 daily timeline + 8 monthly summary).
 
 ## Architecture Notes
 
@@ -305,6 +309,16 @@ Two jobs: `lint-and-test` then `build`.
 - **Migration V3** (`src-tauri/src/database.rs`): `INSERT OR IGNORE` for `alarm_volume` setting with value `0.6`.
 - **Fallback strategy**: `playAlarmChime` tries web audio first → catches any error → falls back to `invoke("play_alarm")` (Rust rodio).
 
+### DB Path Configuration (Implemented — PR 10.2)
+- **Config module** (`src-tauri/src/config.rs`): manages custom DB path via `config.json` in app data directory (separate from DB to avoid chicken-and-egg problem).
+- **`AppConfig`** struct: `{ db_path: Option<String> }`. Read/write via `read_config()`/`write_config()`.
+- **`resolve_db_path(app_data_dir)`**: returns custom path from config or default `{app_data_dir}/pomo.db`.
+- **Tauri commands**: `get_db_info` (returns `DbInfo` with path, is_custom, is_cloud_synced, journal_mode, default_path), `change_db_path` (copies DB to new directory, writes config), `reset_db_path` (copies DB back to default, clears config).
+- **Frontend DB loading** (`src/lib/db.ts`): `getDb()` calls `get_db_info` to discover the actual DB path dynamically instead of using a hardcoded path.
+- **Settings UI** (`src/components/SettingsPanel.tsx`): DB path section shows current path, cloud-sync indicator (WAL vs DELETE), Change button (opens folder picker via `@tauri-apps/plugin-dialog`), Reset to Default button (when custom path), restart-required notice after change.
+- **File dialog**: `tauri-plugin-dialog` (Rust) + `@tauri-apps/plugin-dialog` (npm) for native folder picker.
+- **MCP documentation** (`docs/mcp-setup.md`): setup guide for `@modelcontextprotocol/server-sqlite` with Pomo's DB, includes schema docs, example queries, WAL concurrent access notes.
+
 ### Task History & Cross-Day Copy (Implemented — PR 8.1)
 - **Copy to Today**: past-day tasks can be copied to today via "Copy to Today" button in the actions menu. Uses `copy_task_to_day` Rust command which deep-copies the task and subtasks with `linked_from_task_id` set to the original task ID.
 - **Copied from indicator**: tasks copied from another day show a "Copied from [date]" clickable link that navigates to the original day. Uses `get_task_origin_dates` Rust command (INNER JOIN on `linked_from_task_id`).
@@ -332,7 +346,7 @@ Two jobs: `lint-and-test` then `build`.
 - Schema managed via `PRAGMA user_version` (currently v3). Migration runner in `src-tauri/src/database.rs`. V2 adds `completed_in_pomodoro` column to tasks and `break_overtime_enabled` setting. V3 seeds `alarm_volume` default setting (0.6).
 - `PRAGMA foreign_keys = ON` set on every connection.
 - WAL mode for local paths; `journal_mode=DELETE` for cloud-synced paths (OneDrive/Dropbox/Google Drive/iCloud) — auto-detected by `is_cloud_synced_path()`.
-- DB file created at `$APPDATA/com.pomo.app/pomo.db` on first launch (Tauri setup hook).
+- DB file created at `$APPDATA/com.pomo.app/pomo.db` by default on first launch (Tauri setup hook). Custom path configurable via Settings UI, stored in `$APPDATA/com.pomo.app/config.json`.
 - `tauri-plugin-sql` registered for frontend SQL access via `@tauri-apps/plugin-sql` npm package.
 - TypeScript repository layer (`src/lib/*Repository.ts`) provides typed wrappers around `db.select<T>()` and `db.execute()`.
 - Zod schemas (`src/lib/schemas.ts`) validate all DB results at runtime; types inferred via `z.infer<>`.

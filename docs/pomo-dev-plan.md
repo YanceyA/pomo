@@ -334,7 +334,9 @@ main (protected, always releasable)
 - `TaskPanel` applies `opacity-50` when `isDragging` for visual feedback
 - `TaskPanelOverlay` shows title, tag badge, and subtask count in a `shadow-lg` card
 
-### PR 4.3 — Day scoping and navigation
+### PR 4.3 — Day scoping and navigation ✅ COMPLETE
+
+**Status:** Done (2026-02-14). All testing gates passed (136 Vitest tests, 11 new DateNavigator tests).
 
 **Scope:**
 - Task list filtered by current day (default: today)
@@ -343,10 +345,25 @@ main (protected, always releasable)
 - Display "Today" / "Feb 14, 2026" header above the task list
 - Visual distinction for past days (read-only feel, but still editable)
 
+**Notes:**
+- shadcn/ui Calendar and Popover components added (`npx shadcn@latest add calendar popover`).
+- `DateNavigator` component uses prev/next day buttons (ChevronLeft/ChevronRight), a calendar popover (react-day-picker v9 in single select mode), and a "Today" button when viewing non-today dates.
+- Past day indicator shows "Viewing a past day" text when `selectedDate < today`.
+- No Rust backend changes needed — `get_tasks_by_date` and `taskStore.setSelectedDate()` already supported date filtering from PR 4.1.
+- `TaskList` now renders `<DateNavigator />` instead of a static date header.
+
 **Testing:**
-- Vitest + RTL: task list shows only tasks for selected date
-- Vitest + RTL: date navigator changes the displayed day
-- Vitest + RTL: new task gets the currently selected day's date
+- Vitest + RTL: renders "Today" when selected date is today — **PASS**
+- Vitest + RTL: renders formatted date for non-today dates — **PASS**
+- Vitest + RTL: "Today" button shown only when viewing a different date — **PASS**
+- Vitest + RTL: past-day indicator shown for past dates — **PASS**
+- Vitest + RTL: prev/next day navigation updates store and reloads tasks — **PASS**
+- Vitest + RTL: calendar popover opens on date header click — **PASS**
+- Vitest + RTL: selecting a date from calendar updates store — **PASS**
+- `npm run lint` passes — **PASS**
+- `npm run typecheck` passes — **PASS**
+- `npm run test` passes (136 tests) — **PASS**
+- `cargo clippy -- -D warnings` passes — **PASS**
 
 ### UAT — Milestone 4
 

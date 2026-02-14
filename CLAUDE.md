@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** PR 4.2 complete — Drag-and-drop reordering with @dnd-kit. PR 4.1 complete (Task CRUD with subtasks). M3 complete (timer state machine + frontend). M2 complete (SQLite schema v1, TypeScript repository layer). PR 4.3 (Day scoping and navigation) is next.
+**Current status:** M4 complete — Task management with CRUD, subtasks, drag-and-drop, and day scoping/navigation. M3 complete (timer state machine + frontend). M2 complete (SQLite schema v1, TypeScript repository layer). M5 (Timer-Task Link) is next.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -68,12 +68,15 @@ pomo/
 │   │   │   ├── checkbox.tsx    # shadcn/ui Checkbox component
 │   │   │   ├── dialog.tsx      # shadcn/ui Dialog component
 │   │   │   ├── input.tsx       # shadcn/ui Input component
-│   │   │   └── label.tsx       # shadcn/ui Label component
+│   │   │   ├── label.tsx       # shadcn/ui Label component
+│   │   │   ├── calendar.tsx    # shadcn/ui Calendar component (react-day-picker v9)
+│   │   │   └── popover.tsx     # shadcn/ui Popover component (Radix)
 │   │   ├── TimerPage.tsx       # Main timer page — combines display, controls, selector
 │   │   ├── TimerDisplay.tsx    # Large countdown (MM:SS) with SVG progress ring
 │   │   ├── TimerControls.tsx   # Start, Pause/Resume, Cancel buttons
 │   │   ├── IntervalTypeSelector.tsx  # Work / Short Break / Long Break radio group
-│   │   ├── TaskList.tsx        # Day's task list with DndContext, drag-and-drop reordering
+│   │   ├── DateNavigator.tsx   # Day picker with prev/next arrows, calendar popover, Today button
+│   │   ├── TaskList.tsx        # Day's task list with DateNavigator, DndContext, drag-and-drop reordering
 │   │   ├── TaskPanel.tsx       # Sortable task card with drag handle, status, tag, subtasks, actions
 │   │   ├── TaskPanelOverlay.tsx # Simplified task card for drag overlay preview
 │   │   ├── TaskCreateDialog.tsx # Dialog for creating tasks and subtasks
@@ -181,7 +184,8 @@ Two jobs: `lint-and-test` then `build`.
 - Component tests use `@testing-library/user-event` for user interaction simulation.
 - Task store tests verify CRUD command invocations, date selection, and dialog state management.
 - Task component tests (TaskPanel, TaskCreateDialog, SubtaskItem) verify rendering of all fields, user interactions (checkbox, actions menu, form submit), and correct command invocations.
-- Current test count: 125 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 15 timer store + 14 task store + 8 timer display + 8 timer controls + 7 interval type selector + 13 task panel + 9 task create dialog + 7 subtask item + 4 task list).
+- DateNavigator tests verify: "Today" rendering, formatted date for non-today, Today button visibility, past-day indicator, prev/next day navigation with store updates, calendar popover open/close, and calendar date selection.
+- Current test count: 136 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 15 timer store + 14 task store + 8 timer display + 8 timer controls + 7 interval type selector + 13 task panel + 9 task create dialog + 7 subtask item + 4 task list + 11 date navigator).
 
 ## Architecture Notes
 
@@ -215,7 +219,8 @@ Two jobs: `lint-and-test` then `build`.
 - `clone_task` deep copies the task and all its subtasks with fresh IDs and `pending` status.
 - Task auto-positioning: `create_task` computes the next position as `MAX(position) + 1` for the day.
 - **Zustand store** (`src/stores/taskStore.ts`): manages task list, selected date, create dialog state. All actions call Tauri commands via `invoke()` then reload the task list.
-- **TaskList** (`src/components/TaskList.tsx`): renders day header, add button, and sortable TaskPanel for each parent task. Uses `DndContext` + `SortableContext` with `verticalListSortingStrategy` for drag-and-drop. `PointerSensor` (distance: 8) and `KeyboardSensor` with `sortableKeyboardCoordinates`. `DragOverlay` renders `TaskPanelOverlay` during drag.
+- **DateNavigator** (`src/components/DateNavigator.tsx`): date navigation with prev/next day buttons, calendar popover (shadcn/ui Calendar + Popover using react-day-picker v9), "Today" button when viewing non-today dates, and "Viewing a past day" indicator. Connects to `taskStore.setSelectedDate()`.
+- **TaskList** (`src/components/TaskList.tsx`): renders DateNavigator, add button, and sortable TaskPanel for each parent task. Uses `DndContext` + `SortableContext` with `verticalListSortingStrategy` for drag-and-drop. `PointerSensor` (distance: 8) and `KeyboardSensor` with `sortableKeyboardCoordinates`. `DragOverlay` renders `TaskPanelOverlay` during drag.
 - **TaskPanel** (`src/components/TaskPanel.tsx`): sortable task card using `useSortable` hook. Drag handle via `setActivatorNodeRef` on GripVertical icon button. Applies `CSS.Transform` and `transition` styles. Displays title, tag badge, Jira key, status indicator, subtask list, and expandable action menu.
 - **TaskPanelOverlay** (`src/components/TaskPanelOverlay.tsx`): simplified task card for drag overlay preview — shows title, tag badge, subtask count.
 - **TaskCreateDialog** (`src/components/TaskCreateDialog.tsx`): shadcn/ui Dialog for creating tasks (title, tag, Jira key) and subtasks (title only).

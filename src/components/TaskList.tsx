@@ -18,13 +18,13 @@ import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useTaskStore } from "@/stores/taskStore";
+import { DateNavigator } from "./DateNavigator";
 import { TaskCreateDialog } from "./TaskCreateDialog";
 import { TaskPanel } from "./TaskPanel";
 import { TaskPanelOverlay } from "./TaskPanelOverlay";
 
 export function TaskList() {
   const tasks = useTaskStore((s) => s.tasks);
-  const selectedDate = useTaskStore((s) => s.selectedDate);
   const isLoading = useTaskStore((s) => s.isLoading);
   const loadTasks = useTaskStore((s) => s.loadTasks);
   const openCreateDialog = useTaskStore((s) => s.openCreateDialog);
@@ -78,29 +78,10 @@ export function TaskList() {
     ? parentTasks.find((t) => t.id === activeId)
     : null;
 
-  const formatDateHeader = (dateStr: string) => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, "0");
-    const day = String(today.getDate()).padStart(2, "0");
-    const todayStr = `${year}-${month}-${day}`;
-
-    if (dateStr === todayStr) return "Today";
-
-    const date = new Date(`${dateStr}T00:00:00`);
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  };
-
   return (
     <div className="flex w-full max-w-md flex-col gap-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold" data-testid="task-date-header">
-          {formatDateHeader(selectedDate)}
-        </h2>
+        <DateNavigator />
         <Button
           variant="outline"
           size="sm"

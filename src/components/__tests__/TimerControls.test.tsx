@@ -137,4 +137,34 @@ describe("TimerControls", () => {
 
     expect(mockInvoke).toHaveBeenCalledWith("cancel_timer");
   });
+
+  it("shows Stop button during overtime", () => {
+    useTimerStore.setState({ state: "running", overtime: true });
+
+    render(<TimerControls />);
+    expect(screen.getByTestId("stop-button")).toBeInTheDocument();
+    expect(screen.getByText("Stop")).toBeInTheDocument();
+    expect(screen.queryByTestId("pause-button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("cancel-button")).not.toBeInTheDocument();
+  });
+
+  it("Stop button calls cancelTimer during overtime", async () => {
+    useTimerStore.setState({ state: "running", overtime: true });
+    mockInvoke.mockResolvedValue({
+      state: "idle",
+      interval_type: "short_break",
+      remaining_ms: 0,
+      planned_duration_seconds: 0,
+      interval_id: null,
+      completed_work_count: 0,
+      overtime: false,
+      overtime_ms: 0,
+    });
+
+    const user = userEvent.setup();
+    render(<TimerControls />);
+    await user.click(screen.getByTestId("stop-button"));
+
+    expect(mockInvoke).toHaveBeenCalledWith("cancel_timer");
+  });
 });

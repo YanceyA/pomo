@@ -4,6 +4,7 @@ import { useTimerStore } from "@/stores/timerStore";
 
 export function TimerControls() {
   const state = useTimerStore((s) => s.state);
+  const overtime = useTimerStore((s) => s.overtime);
   const startTimer = useTimerStore((s) => s.startTimer);
   const pauseTimer = useTimerStore((s) => s.pauseTimer);
   const resumeTimer = useTimerStore((s) => s.resumeTimer);
@@ -15,6 +16,22 @@ export function TimerControls() {
         <Button size="lg" onClick={startTimer} data-testid="start-button">
           <Timer className="size-5" />
           Start
+        </Button>
+      </div>
+    );
+  }
+
+  if (overtime) {
+    return (
+      <div className="flex gap-3">
+        <Button
+          size="lg"
+          variant="destructive"
+          onClick={cancelTimer}
+          data-testid="stop-button"
+        >
+          <Square className="size-5" />
+          Stop
         </Button>
       </div>
     );

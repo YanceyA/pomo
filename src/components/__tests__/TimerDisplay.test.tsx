@@ -99,4 +99,33 @@ describe("TimerDisplay", () => {
     render(<TimerDisplay />);
     expect(screen.getByText("01:05")).toBeInTheDocument();
   });
+
+  it("shows negative time during overtime", () => {
+    useTimerStore.setState({
+      state: "running",
+      intervalType: "short_break",
+      remainingMs: 0,
+      plannedDurationSeconds: 300,
+      overtime: true,
+      overtimeMs: 90000, // 1:30
+    });
+
+    render(<TimerDisplay />);
+    expect(screen.getByText("-01:30")).toBeInTheDocument();
+  });
+
+  it("shows amber color during overtime", () => {
+    useTimerStore.setState({
+      state: "running",
+      intervalType: "short_break",
+      remainingMs: 0,
+      plannedDurationSeconds: 300,
+      overtime: true,
+      overtimeMs: 5000,
+    });
+
+    render(<TimerDisplay />);
+    const timeEl = screen.getByTestId("timer-time");
+    expect(timeEl.className).toContain("text-amber-500");
+  });
 });

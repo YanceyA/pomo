@@ -39,6 +39,7 @@ const makeTask = (overrides = {}) => ({
   position: 0,
   created_at: "2026-02-14T09:00:00Z",
   updated_at: "2026-02-14T09:00:00Z",
+  completed_in_pomodoro: null,
   ...overrides,
 });
 
@@ -144,7 +145,10 @@ describe("TaskPanel", () => {
 
     await user.click(screen.getByTestId("task-checkbox-1"));
 
-    expect(mockInvoke).toHaveBeenCalledWith("complete_task", { id: 1 });
+    expect(mockInvoke).toHaveBeenCalledWith("complete_task", {
+      id: 1,
+      pomodoroNumber: null,
+    });
   });
 
   it("calls reopenTask when checkbox is clicked on completed task", async () => {
@@ -257,27 +261,17 @@ describe("TaskPanel", () => {
     expect(screen.queryByTestId("task-complete-1")).not.toBeInTheDocument();
   });
 
-  it("shows pomodoro count when task has linked intervals", () => {
-    useTaskStore.setState({ intervalCounts: { 1: 3 } });
-    renderWithDnd(makeTask());
-    expect(screen.getByTestId("task-pomodoro-count-1")).toHaveTextContent(
-      "3 pomodoros",
+  it("shows 'Pomodoro N' when completed_in_pomodoro is set", () => {
+    renderWithDnd(makeTask({ completed_in_pomodoro: 3 }));
+    expect(screen.getByTestId("task-pomodoro-number-1")).toHaveTextContent(
+      "Pomodoro 3",
     );
   });
 
-  it("shows singular pomodoro for count of 1", () => {
-    useTaskStore.setState({ intervalCounts: { 1: 1 } });
-    renderWithDnd(makeTask());
-    expect(screen.getByTestId("task-pomodoro-count-1")).toHaveTextContent(
-      "1 pomodoro",
-    );
-  });
-
-  it("does not show pomodoro count when task has no linked intervals", () => {
-    useTaskStore.setState({ intervalCounts: {} });
-    renderWithDnd(makeTask());
+  it("hides pomodoro number when completed_in_pomodoro is null", () => {
+    renderWithDnd(makeTask({ completed_in_pomodoro: null }));
     expect(
-      screen.queryByTestId("task-pomodoro-count-1"),
+      screen.queryByTestId("task-pomodoro-number-1"),
     ).not.toBeInTheDocument();
   });
 

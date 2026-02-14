@@ -144,8 +144,22 @@ pub fn run_migrations(conn: &Connection) -> SqliteResult<()> {
         }
     }
 
-    // Future migrations would follow the same pattern:
-    // if current < 2 { apply_v2(); set_user_version(conn, 2); }
+    if current < 2 {
+        conn.execute_batch("BEGIN;")?;
+        match conn.execute_batch(
+            "ALTER TABLE tasks ADD COLUMN completed_in_pomodoro INTEGER;\n\
+             INSERT OR IGNORE INTO user_settings (key, value, type) VALUES ('break_overtime_enabled', 'false', 'boolean');",
+        ) {
+            Ok(()) => {
+                set_user_version(conn, 2)?;
+                conn.execute_batch("COMMIT;")?;
+            }
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK;");
+                return Err(e);
+            }
+        }
+    }
 
     Ok(())
 }
@@ -196,15 +210,15 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         run_migrations(&conn).unwrap();
-        assert_eq!(get_user_version(&conn).unwrap(), 1);
+        assert_eq!(get_user_version(&conn).unwrap(), 2);
     }
 
     #[test]
-    fn user_version_is_set_to_1_after_migration() {
+    fn user_version_is_set_to_2_after_migration() {
         let conn = Connection::open_in_memory().unwrap();
         assert_eq!(get_user_version(&conn).unwrap(), 0);
         run_migrations(&conn).unwrap();
-        assert_eq!(get_user_version(&conn).unwrap(), 1);
+        assert_eq!(get_user_version(&conn).unwrap(), 2);
     }
 
     // ── Table existence tests ───────────────────────────────────
@@ -328,7 +342,7 @@ mod tests {
         let count: u32 = conn
             .query_row("SELECT COUNT(*) FROM user_settings", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 6, "Expected 6 default settings");
+        assert_eq!(count, 7, "Expected 7 default settings");
     }
 
     #[test]
@@ -664,6 +678,62 @@ mod tests {
         // Both should be valid ISO 8601 timestamps
         assert!(before.contains('T'));
         assert!(after.contains('T'));
+    }
+
+    // ── Linked task tests ───────────────────────────────────────
+
+    // ── Migration v2 tests ────────────────────────────────────
+
+    #[test]
+    fn migration_v2_adds_completed_in_pomodoro_column() {
+        let conn = setup_test_db();
+        conn.execute(
+            "INSERT INTO tasks (title, day_date, position, completed_in_pomodoro) VALUES ('Task', '2026-02-14', 0, 3)",
+            [],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+
+        let val: Option<i64> = conn
+            .query_row(
+                "SELECT completed_in_pomodoro FROM tasks WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(val, Some(3));
+    }
+
+    #[test]
+    fn migration_v2_seeds_break_overtime_enabled_setting() {
+        let conn = setup_test_db();
+        let value: String = conn
+            .query_row(
+                "SELECT value FROM user_settings WHERE key = 'break_overtime_enabled'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, "false");
+    }
+
+    #[test]
+    fn migration_v2_is_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        run_migrations(&conn).unwrap();
+        run_migrations(&conn).unwrap();
+        assert_eq!(get_user_version(&conn).unwrap(), 2);
+
+        // Column still exists and setting still present
+        let count: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM user_settings WHERE key = 'break_overtime_enabled'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
     }
 
     // ── Linked task tests ───────────────────────────────────────

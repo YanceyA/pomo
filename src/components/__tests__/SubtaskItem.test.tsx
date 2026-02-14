@@ -34,6 +34,7 @@ const makeSubtask = (overrides = {}) => ({
   position: 0,
   created_at: "2026-02-14T09:00:00Z",
   updated_at: "2026-02-14T09:00:00Z",
+  completed_in_pomodoro: null,
   ...overrides,
 });
 
@@ -78,7 +79,10 @@ describe("SubtaskItem", () => {
 
     await user.click(screen.getByTestId("subtask-checkbox-2"));
 
-    expect(mockInvoke).toHaveBeenCalledWith("complete_task", { id: 2 });
+    expect(mockInvoke).toHaveBeenCalledWith("complete_task", {
+      id: 2,
+      pomodoroNumber: null,
+    });
   });
 
   it("calls reopenTask when checkbox is clicked on completed subtask", async () => {

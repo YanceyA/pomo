@@ -51,6 +51,7 @@ export const taskSchema = z.object({
   position: z.number(),
   created_at: z.string(),
   updated_at: z.string(),
+  completed_in_pomodoro: z.number().nullable(),
 });
 
 export type Task = z.infer<typeof taskSchema>;

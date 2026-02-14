@@ -44,10 +44,13 @@ describe("timerStore", () => {
       plannedDurationSeconds: 0,
       intervalId: null,
       completedWorkCount: 0,
+      overtime: false,
+      overtimeMs: 0,
       workDuration: 1500,
       shortBreakDuration: 300,
       longBreakDuration: 900,
       longBreakFrequency: 4,
+      breakOvertimeEnabled: false,
       showCompletionNotice: false,
       completedIntervalType: null,
       showAssociationDialog: false,
@@ -96,6 +99,26 @@ describe("timerStore", () => {
       expect(state.remainingMs).toBe(1500000);
       expect(state.plannedDurationSeconds).toBe(1500);
       expect(state.intervalId).toBe(1);
+    });
+
+    it("dismisses completion notice on start", async () => {
+      useTimerStore.setState({
+        showCompletionNotice: true,
+        completedIntervalType: "short_break",
+      });
+      mockInvoke.mockResolvedValue({
+        state: "running",
+        interval_type: "work",
+        remaining_ms: 1500000,
+        planned_duration_seconds: 1500,
+        interval_id: 1,
+        completed_work_count: 0,
+      });
+
+      await useTimerStore.getState().startTimer();
+
+      expect(useTimerStore.getState().showCompletionNotice).toBe(false);
+      expect(useTimerStore.getState().completedIntervalType).toBeNull();
     });
 
     it("uses short break duration when selected", async () => {
@@ -368,6 +391,84 @@ describe("timerStore", () => {
       const state = useTimerStore.getState();
       expect(state.showAssociationDialog).toBe(false);
       expect(state.lastCompletedIntervalId).toBeNull();
+    });
+  });
+
+  describe("overtime", () => {
+    it("timer-complete with overtime=true does not set state to idle", async () => {
+      useTimerStore.setState({ state: "running" });
+      await useTimerStore.getState().initEventListeners();
+
+      const completeCallback = listeners.get("timer-complete");
+      completeCallback?.({
+        payload: {
+          interval_id: 10,
+          interval_type: "short_break",
+          completed_work_count: 2,
+          overtime: true,
+        },
+      });
+
+      const state = useTimerStore.getState();
+      expect(state.state).toBe("running"); // stays running, not idle
+      expect(state.overtime).toBe(true);
+      expect(state.overtimeMs).toBe(0);
+      expect(state.showCompletionNotice).toBe(true);
+      expect(state.completedIntervalType).toBe("short_break");
+    });
+
+    it("timer-tick updates overtimeMs", async () => {
+      useTimerStore.setState({ state: "running", overtime: true });
+      await useTimerStore.getState().initEventListeners();
+
+      const tickCallback = listeners.get("timer-tick");
+      tickCallback?.({
+        payload: {
+          remaining_ms: 0,
+          interval_type: "short_break",
+          overtime_ms: 90000,
+        },
+      });
+
+      expect(useTimerStore.getState().overtimeMs).toBe(90000);
+    });
+
+    it("startTimer clears overtime state", async () => {
+      useTimerStore.setState({ overtime: true, overtimeMs: 5000 });
+      mockInvoke.mockResolvedValue({
+        state: "running",
+        interval_type: "work",
+        remaining_ms: 1500000,
+        planned_duration_seconds: 1500,
+        interval_id: 1,
+        completed_work_count: 0,
+        overtime: false,
+        overtime_ms: 0,
+      });
+
+      await useTimerStore.getState().startTimer();
+
+      expect(useTimerStore.getState().overtime).toBe(false);
+      expect(useTimerStore.getState().overtimeMs).toBe(0);
+    });
+
+    it("cancelTimer clears overtime state", async () => {
+      useTimerStore.setState({ overtime: true, overtimeMs: 5000 });
+      mockInvoke.mockResolvedValue({
+        state: "idle",
+        interval_type: "work",
+        remaining_ms: 0,
+        planned_duration_seconds: 0,
+        interval_id: null,
+        completed_work_count: 0,
+        overtime: false,
+        overtime_ms: 0,
+      });
+
+      await useTimerStore.getState().cancelTimer();
+
+      expect(useTimerStore.getState().overtime).toBe(false);
+      expect(useTimerStore.getState().overtimeMs).toBe(0);
     });
   });
 });

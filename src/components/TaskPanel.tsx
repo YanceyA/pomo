@@ -39,7 +39,6 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
   const openEditDialog = useTaskStore((s) => s.openEditDialog);
   const selectedDate = useTaskStore((s) => s.selectedDate);
   const setSelectedDate = useTaskStore((s) => s.setSelectedDate);
-  const pomodoroCount = useTaskStore((s) => s.intervalCounts[task.id] ?? 0);
   const originDate = useTaskStore((s) => s.originDates[task.id]);
   const [showActions, setShowActions] = useState(false);
 
@@ -161,15 +160,16 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
               })}
             </button>
           )}
-          {pomodoroCount > 0 && (
-            <span
-              className="flex items-center gap-1 text-xs text-muted-foreground"
-              data-testid={`task-pomodoro-count-${task.id}`}
-            >
-              <Clock className="size-3" />
-              {pomodoroCount} {pomodoroCount === 1 ? "pomodoro" : "pomodoros"}
-            </span>
-          )}
+          {task.completed_in_pomodoro != null &&
+            task.completed_in_pomodoro > 0 && (
+              <span
+                className="flex items-center gap-1 text-xs text-muted-foreground"
+                data-testid={`task-pomodoro-number-${task.id}`}
+              >
+                <Clock className="size-3" />
+                Pomodoro {task.completed_in_pomodoro}
+              </span>
+            )}
           {/* Subtasks */}
           {subtasks.length > 0 && (
             <div

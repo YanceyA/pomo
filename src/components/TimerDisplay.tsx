@@ -46,6 +46,13 @@ function getTypeLabel(type: IntervalType): string {
   }
 }
 
+function formatOvertime(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `-${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 export function TimerDisplay() {
   const state = useTimerStore((s) => s.state);
   const intervalType = useTimerStore((s) => s.intervalType);
@@ -55,6 +62,8 @@ export function TimerDisplay() {
   const workDuration = useTimerStore((s) => s.workDuration);
   const shortBreakDuration = useTimerStore((s) => s.shortBreakDuration);
   const longBreakDuration = useTimerStore((s) => s.longBreakDuration);
+  const overtime = useTimerStore((s) => s.overtime);
+  const overtimeMs = useTimerStore((s) => s.overtimeMs);
 
   const isActive = state !== "idle";
   const displayType = isActive ? intervalType : selectedType;
@@ -75,8 +84,13 @@ export function TimerDisplay() {
         longBreakDuration,
       );
 
-  const progress = totalMs > 0 ? displayMs / totalMs : 1;
+  const progress = overtime ? 0 : totalMs > 0 ? displayMs / totalMs : 1;
   const dashOffset = CIRCUMFERENCE * (1 - progress);
+
+  const timeDisplay = overtime
+    ? formatOvertime(overtimeMs)
+    : formatTime(displayMs);
+  const timeColor = overtime ? "text-amber-500" : getTypeColor(displayType);
 
   return (
     <div
@@ -111,9 +125,10 @@ export function TimerDisplay() {
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span
-          className={`text-5xl font-mono font-bold tabular-nums ${getTypeColor(displayType)}`}
+          className={`text-5xl font-mono font-bold tabular-nums ${timeColor}`}
+          data-testid="timer-time"
         >
-          {formatTime(displayMs)}
+          {timeDisplay}
         </span>
         <span className="text-sm text-muted-foreground mt-1">
           {getTypeLabel(displayType)}

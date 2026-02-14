@@ -28,6 +28,7 @@ pub struct Task {
     pub position: i64,
     pub created_at: String,
     pub updated_at: String,
+    pub completed_in_pomodoro: Option<i64>,
 }
 
 // ── Database helpers ────────────────────────────────────────
@@ -53,11 +54,12 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         position: row.get(8)?,
         created_at: row.get(9)?,
         updated_at: row.get(10)?,
+        completed_in_pomodoro: row.get(11)?,
     })
 }
 
 const TASK_COLUMNS: &str = "id, title, day_date, status, parent_task_id, linked_from_task_id, \
-                            jira_key, tag, position, created_at, updated_at";
+                            jira_key, tag, position, created_at, updated_at, completed_in_pomodoro";
 
 // ── Tauri commands ──────────────────────────────────────────
 
@@ -192,7 +194,11 @@ pub fn delete_task(state: tauri::State<'_, AppState>, id: i64) -> Result<(), Str
 
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub fn complete_task(state: tauri::State<'_, AppState>, id: i64) -> Result<Task, String> {
+pub fn complete_task(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    pomodoro_number: Option<i64>,
+) -> Result<Task, String> {
     let conn = open_db(&state.db_path)?;
 
     // Check for pending subtasks
@@ -210,8 +216,8 @@ pub fn complete_task(state: tauri::State<'_, AppState>, id: i64) -> Result<Task,
 
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     conn.execute(
-        "UPDATE tasks SET status = 'completed', updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![now, id],
+        "UPDATE tasks SET status = 'completed', completed_in_pomodoro = ?1, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![pomodoro_number, now, id],
     )
     .map_err(|e| format!("Failed to complete task: {e}"))?;
 
@@ -260,7 +266,7 @@ pub fn reopen_task(state: tauri::State<'_, AppState>, id: i64) -> Result<Task, S
 
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     conn.execute(
-        "UPDATE tasks SET status = 'pending', updated_at = ?1 WHERE id = ?2",
+        "UPDATE tasks SET status = 'pending', completed_in_pomodoro = NULL, updated_at = ?1 WHERE id = ?2",
         rusqlite::params![now, id],
     )
     .map_err(|e| format!("Failed to reopen task: {e}"))?;
@@ -1398,6 +1404,64 @@ mod tests {
 
         assert_eq!(dates.len(), 1);
         assert_eq!(dates[0], "2026-02-14");
+    }
+
+    // ── completed_in_pomodoro tests ──────────────────────────
+
+    #[test]
+    fn complete_task_stores_pomodoro_number() {
+        let conn = setup_test_db();
+        let id = insert_task(&conn, "Task", "2026-02-14", 0);
+
+        conn.execute(
+            "UPDATE tasks SET status = 'completed', completed_in_pomodoro = 3 WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+
+        let task = get_task(&conn, id);
+        assert_eq!(task.status, "completed");
+        assert_eq!(task.completed_in_pomodoro, Some(3));
+    }
+
+    #[test]
+    fn complete_task_without_pomodoro_number_stores_null() {
+        let conn = setup_test_db();
+        let id = insert_task(&conn, "Task", "2026-02-14", 0);
+
+        conn.execute(
+            "UPDATE tasks SET status = 'completed', completed_in_pomodoro = NULL WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+
+        let task = get_task(&conn, id);
+        assert_eq!(task.status, "completed");
+        assert_eq!(task.completed_in_pomodoro, None);
+    }
+
+    #[test]
+    fn reopen_task_clears_pomodoro_number() {
+        let conn = setup_test_db();
+        let id = insert_task(&conn, "Task", "2026-02-14", 0);
+
+        // Complete with pomodoro number
+        conn.execute(
+            "UPDATE tasks SET status = 'completed', completed_in_pomodoro = 2 WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+        assert_eq!(get_task(&conn, id).completed_in_pomodoro, Some(2));
+
+        // Reopen — should clear pomodoro number
+        conn.execute(
+            "UPDATE tasks SET status = 'pending', completed_in_pomodoro = NULL WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+        let task = get_task(&conn, id);
+        assert_eq!(task.status, "pending");
+        assert_eq!(task.completed_in_pomodoro, None);
     }
 
     // ── Origin dates tests ─────────────────────────────────

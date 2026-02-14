@@ -1,6 +1,7 @@
 import { Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -19,9 +20,13 @@ interface SettingsFormValues {
   shortBreakDuration: number;
   longBreakDuration: number;
   longBreakFrequency: number;
+  breakOvertimeEnabled: boolean;
 }
 
-const PRESETS: { label: string; values: SettingsFormValues }[] = [
+const PRESETS: {
+  label: string;
+  values: Omit<SettingsFormValues, "breakOvertimeEnabled">;
+}[] = [
   {
     label: "25 / 5",
     values: {
@@ -88,6 +93,7 @@ export function SettingsPanel() {
     shortBreakDuration: 5,
     longBreakDuration: 15,
     longBreakFrequency: 4,
+    breakOvertimeEnabled: false,
   });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -103,6 +109,7 @@ export function SettingsPanel() {
           Number(map.get("short_break_duration_minutes")) || 5,
         longBreakDuration: Number(map.get("long_break_duration_minutes")) || 15,
         longBreakFrequency: Number(map.get("long_break_frequency")) || 4,
+        breakOvertimeEnabled: map.get("break_overtime_enabled") === "true",
       });
       setError(null);
     })();
@@ -115,8 +122,10 @@ export function SettingsPanel() {
     setError(null);
   };
 
-  const applyPreset = (preset: SettingsFormValues) => {
-    setForm(preset);
+  const applyPreset = (
+    preset: Omit<SettingsFormValues, "breakOvertimeEnabled">,
+  ) => {
+    setForm((prev) => ({ ...prev, ...preset }));
     setError(null);
   };
 
@@ -126,6 +135,7 @@ export function SettingsPanel() {
       shortBreakDuration: clamp(form.shortBreakDuration, 1, 30),
       longBreakDuration: clamp(form.longBreakDuration, 5, 60),
       longBreakFrequency: clamp(form.longBreakFrequency, 1, 10),
+      breakOvertimeEnabled: form.breakOvertimeEnabled,
     };
 
     const validationError = validate(clamped);
@@ -151,6 +161,10 @@ export function SettingsPanel() {
       await settingsRepository.set(
         "long_break_frequency",
         String(clamped.longBreakFrequency),
+      );
+      await settingsRepository.set(
+        "break_overtime_enabled",
+        String(clamped.breakOvertimeEnabled),
       );
       await loadSettings();
       setOpen(false);
@@ -254,6 +268,29 @@ export function SettingsPanel() {
                   handleChange("longBreakFrequency", e.target.value)
                 }
               />
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3">
+            <Checkbox
+              id="break-overtime"
+              checked={form.breakOvertimeEnabled}
+              onCheckedChange={(checked) =>
+                setForm((prev) => ({
+                  ...prev,
+                  breakOvertimeEnabled: checked === true,
+                }))
+              }
+              data-testid="settings-break-overtime"
+            />
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="break-overtime" className="cursor-pointer">
+                Show overtime on break timers
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                When enabled, break timers count up past zero to show how long
+                the break was exceeded.
+              </p>
             </div>
           </div>
 

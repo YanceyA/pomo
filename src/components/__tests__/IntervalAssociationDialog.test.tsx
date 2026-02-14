@@ -37,6 +37,7 @@ const makeTask = (overrides = {}) => ({
   position: 0,
   created_at: "2026-02-14T09:00:00Z",
   updated_at: "2026-02-14T09:00:00Z",
+  completed_in_pomodoro: null,
   ...overrides,
 });
 
@@ -49,7 +50,7 @@ describe("IntervalAssociationDialog", () => {
       remainingMs: 0,
       plannedDurationSeconds: 0,
       intervalId: null,
-      completedWorkCount: 0,
+      completedWorkCount: 2,
       workDuration: 1500,
       shortBreakDuration: 300,
       longBreakDuration: 900,
@@ -87,7 +88,16 @@ describe("IntervalAssociationDialog", () => {
     expect(screen.getByTestId("association-dialog")).toBeInTheDocument();
   });
 
-  it("shows 'No tasks for today' when task list is empty", () => {
+  it("shows dialog title as 'Complete Tasks'", () => {
+    useTimerStore.setState({
+      showAssociationDialog: true,
+      lastCompletedIntervalId: 42,
+    });
+    render(<IntervalAssociationDialog />);
+    expect(screen.getByText("Complete Tasks")).toBeInTheDocument();
+  });
+
+  it("shows 'No tasks for today' when no pending tasks exist", () => {
     useTimerStore.setState({
       showAssociationDialog: true,
       lastCompletedIntervalId: 42,
@@ -98,27 +108,79 @@ describe("IntervalAssociationDialog", () => {
     );
   });
 
-  it("renders parent tasks as checkboxes but not subtasks", () => {
+  it("only shows pending parent tasks, filters completed and abandoned", () => {
     useTimerStore.setState({
       showAssociationDialog: true,
       lastCompletedIntervalId: 42,
     });
     useTaskStore.setState({
       tasks: [
-        makeTask({ id: 1, title: "Parent task" }),
-        makeTask({
-          id: 2,
-          title: "Subtask",
-          parent_task_id: 1,
-          position: 1,
-        }),
-        makeTask({ id: 3, title: "Another parent", position: 2 }),
+        makeTask({ id: 1, title: "Pending task" }),
+        makeTask({ id: 2, title: "Completed task", status: "completed" }),
+        makeTask({ id: 3, title: "Abandoned task", status: "abandoned" }),
+        makeTask({ id: 4, title: "Another pending", position: 1 }),
       ],
     });
     render(<IntervalAssociationDialog />);
 
     expect(screen.getByTestId("association-task-1")).toBeInTheDocument();
-    expect(screen.getByTestId("association-task-3")).toBeInTheDocument();
+    expect(screen.getByTestId("association-task-4")).toBeInTheDocument();
+    expect(screen.queryByTestId("association-task-2")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("association-task-3")).not.toBeInTheDocument();
+  });
+
+  it("renders pending subtasks nested under parents", () => {
+    useTimerStore.setState({
+      showAssociationDialog: true,
+      lastCompletedIntervalId: 42,
+    });
+    useTaskStore.setState({
+      tasks: [
+        makeTask({ id: 1, title: "Parent" }),
+        makeTask({
+          id: 2,
+          title: "Pending subtask",
+          parent_task_id: 1,
+          position: 0,
+        }),
+        makeTask({
+          id: 3,
+          title: "Completed subtask",
+          parent_task_id: 1,
+          status: "completed",
+          position: 1,
+        }),
+      ],
+    });
+    render(<IntervalAssociationDialog />);
+
+    expect(screen.getByTestId("association-task-1")).toBeInTheDocument();
+    expect(screen.getByTestId("association-subtask-2")).toBeInTheDocument();
+    // Completed subtask should not appear
+    expect(
+      screen.queryByTestId("association-subtask-3"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not show subtasks as parent tasks", () => {
+    useTimerStore.setState({
+      showAssociationDialog: true,
+      lastCompletedIntervalId: 42,
+    });
+    useTaskStore.setState({
+      tasks: [
+        makeTask({ id: 1, title: "Parent" }),
+        makeTask({
+          id: 2,
+          title: "Subtask",
+          parent_task_id: 1,
+        }),
+      ],
+    });
+    render(<IntervalAssociationDialog />);
+
+    expect(screen.getByTestId("association-task-1")).toBeInTheDocument();
+    // Subtask should not appear as a parent-level task
     expect(screen.queryByTestId("association-task-2")).not.toBeInTheDocument();
   });
 
@@ -144,6 +206,95 @@ describe("IntervalAssociationDialog", () => {
     expect(checkbox).toHaveAttribute("data-state", "unchecked");
   });
 
+  it("checking parent auto-checks all pending subtasks", async () => {
+    useTimerStore.setState({
+      showAssociationDialog: true,
+      lastCompletedIntervalId: 42,
+    });
+    useTaskStore.setState({
+      tasks: [
+        makeTask({ id: 1, title: "Parent" }),
+        makeTask({ id: 2, title: "Sub 1", parent_task_id: 1 }),
+        makeTask({ id: 3, title: "Sub 2", parent_task_id: 1, position: 1 }),
+      ],
+    });
+
+    const user = userEvent.setup();
+    render(<IntervalAssociationDialog />);
+
+    await user.click(screen.getByTestId("association-task-1"));
+
+    expect(screen.getByTestId("association-checkbox-1")).toHaveAttribute(
+      "data-state",
+      "checked",
+    );
+    expect(
+      screen.getByTestId("association-subtask-checkbox-2"),
+    ).toHaveAttribute("data-state", "checked");
+    expect(
+      screen.getByTestId("association-subtask-checkbox-3"),
+    ).toHaveAttribute("data-state", "checked");
+  });
+
+  it("unchecking parent unchecks all subtasks", async () => {
+    useTimerStore.setState({
+      showAssociationDialog: true,
+      lastCompletedIntervalId: 42,
+    });
+    useTaskStore.setState({
+      tasks: [
+        makeTask({ id: 1, title: "Parent" }),
+        makeTask({ id: 2, title: "Sub 1", parent_task_id: 1 }),
+      ],
+    });
+
+    const user = userEvent.setup();
+    render(<IntervalAssociationDialog />);
+
+    // Check parent (also checks subtask)
+    await user.click(screen.getByTestId("association-task-1"));
+    expect(
+      screen.getByTestId("association-subtask-checkbox-2"),
+    ).toHaveAttribute("data-state", "checked");
+
+    // Uncheck parent
+    await user.click(screen.getByTestId("association-task-1"));
+    expect(
+      screen.getByTestId("association-subtask-checkbox-2"),
+    ).toHaveAttribute("data-state", "unchecked");
+  });
+
+  it("checking all subtasks auto-checks parent", async () => {
+    useTimerStore.setState({
+      showAssociationDialog: true,
+      lastCompletedIntervalId: 42,
+    });
+    useTaskStore.setState({
+      tasks: [
+        makeTask({ id: 1, title: "Parent" }),
+        makeTask({ id: 2, title: "Sub 1", parent_task_id: 1 }),
+        makeTask({ id: 3, title: "Sub 2", parent_task_id: 1, position: 1 }),
+      ],
+    });
+
+    const user = userEvent.setup();
+    render(<IntervalAssociationDialog />);
+
+    // Check first subtask — parent should remain unchecked
+    await user.click(screen.getByTestId("association-subtask-2"));
+    expect(screen.getByTestId("association-checkbox-1")).toHaveAttribute(
+      "data-state",
+      "unchecked",
+    );
+
+    // Check second subtask — parent should auto-check
+    await user.click(screen.getByTestId("association-subtask-3"));
+    expect(screen.getByTestId("association-checkbox-1")).toHaveAttribute(
+      "data-state",
+      "checked",
+    );
+  });
+
   it("confirm button is disabled when no tasks are selected", () => {
     useTimerStore.setState({
       showAssociationDialog: true,
@@ -157,10 +308,73 @@ describe("IntervalAssociationDialog", () => {
     expect(screen.getByTestId("association-confirm")).toBeDisabled();
   });
 
-  it("clicking Confirm calls link_tasks_to_interval with selected task IDs and interval ID", async () => {
+  it("confirm calls complete_task for selected tasks (subtasks before parents)", async () => {
     useTimerStore.setState({
       showAssociationDialog: true,
       lastCompletedIntervalId: 42,
+      completedWorkCount: 3,
+    });
+    useTaskStore.setState({
+      tasks: [
+        makeTask({ id: 1, title: "Parent" }),
+        makeTask({ id: 2, title: "Sub 1", parent_task_id: 1 }),
+      ],
+    });
+
+    mockInvoke.mockResolvedValue(undefined);
+
+    const user = userEvent.setup();
+    render(<IntervalAssociationDialog />);
+
+    // Check parent (auto-checks subtask too)
+    await user.click(screen.getByTestId("association-task-1"));
+    await user.click(screen.getByTestId("association-confirm"));
+
+    await waitFor(() => {
+      // Subtask completed first
+      expect(mockInvoke).toHaveBeenCalledWith("complete_task", {
+        id: 2,
+        pomodoroNumber: 3,
+      });
+      // Then parent
+      expect(mockInvoke).toHaveBeenCalledWith("complete_task", {
+        id: 1,
+        pomodoroNumber: 3,
+      });
+    });
+  });
+
+  it("confirm passes pomodoroNumber from completedWorkCount", async () => {
+    useTimerStore.setState({
+      showAssociationDialog: true,
+      lastCompletedIntervalId: 42,
+      completedWorkCount: 5,
+    });
+    useTaskStore.setState({
+      tasks: [makeTask({ id: 1, title: "A task" })],
+    });
+
+    mockInvoke.mockResolvedValue(undefined);
+
+    const user = userEvent.setup();
+    render(<IntervalAssociationDialog />);
+
+    await user.click(screen.getByTestId("association-task-1"));
+    await user.click(screen.getByTestId("association-confirm"));
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("complete_task", {
+        id: 1,
+        pomodoroNumber: 5,
+      });
+    });
+  });
+
+  it("clicking Confirm calls link_tasks_to_interval", async () => {
+    useTimerStore.setState({
+      showAssociationDialog: true,
+      lastCompletedIntervalId: 42,
+      completedWorkCount: 1,
     });
     useTaskStore.setState({
       tasks: [
@@ -169,10 +383,7 @@ describe("IntervalAssociationDialog", () => {
       ],
     });
 
-    mockInvoke
-      .mockResolvedValueOnce(undefined) // link_tasks_to_interval
-      .mockResolvedValueOnce([]) // get_tasks_by_date (from loadTasks)
-      .mockResolvedValueOnce([]); // get_task_interval_counts (from loadTasks)
+    mockInvoke.mockResolvedValue(undefined);
 
     const user = userEvent.setup();
     render(<IntervalAssociationDialog />);
@@ -181,9 +392,11 @@ describe("IntervalAssociationDialog", () => {
     await user.click(screen.getByTestId("association-task-3"));
     await user.click(screen.getByTestId("association-confirm"));
 
-    expect(mockInvoke).toHaveBeenCalledWith("link_tasks_to_interval", {
-      taskIds: [1, 3],
-      intervalId: 42,
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("link_tasks_to_interval", {
+        taskIds: [1, 3],
+        intervalId: 42,
+      });
     });
   });
 
@@ -213,15 +426,13 @@ describe("IntervalAssociationDialog", () => {
     useTimerStore.setState({
       showAssociationDialog: true,
       lastCompletedIntervalId: 42,
+      completedWorkCount: 1,
     });
     useTaskStore.setState({
       tasks: [makeTask({ id: 1, title: "Task A" })],
     });
 
-    mockInvoke
-      .mockResolvedValueOnce(undefined) // link_tasks_to_interval
-      .mockResolvedValueOnce([]) // get_tasks_by_date (from loadTasks)
-      .mockResolvedValueOnce([]); // get_task_interval_counts (from loadTasks)
+    mockInvoke.mockResolvedValue(undefined);
 
     const user = userEvent.setup();
     render(<IntervalAssociationDialog />);
@@ -234,9 +445,6 @@ describe("IntervalAssociationDialog", () => {
     });
     expect(useTimerStore.getState().lastCompletedIntervalId).toBeNull();
     expect(mockInvoke).toHaveBeenCalledWith("get_tasks_by_date", {
-      dayDate: "2026-02-14",
-    });
-    expect(mockInvoke).toHaveBeenCalledWith("get_task_interval_counts", {
       dayDate: "2026-02-14",
     });
   });

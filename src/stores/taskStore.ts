@@ -17,6 +17,7 @@ interface TaskFromBackend {
   position: number;
   created_at: string;
   updated_at: string;
+  completed_in_pomodoro: number | null;
 }
 
 interface TaskIntervalCountFromBackend {
@@ -78,7 +79,7 @@ export interface TaskStore {
   deleteTask: (id: number) => Promise<void>;
   softDeleteTask: (id: number) => void;
   undoDelete: () => void;
-  completeTask: (id: number) => Promise<void>;
+  completeTask: (id: number, pomodoroNumber?: number | null) => Promise<void>;
   abandonTask: (id: number) => Promise<void>;
   reopenTask: (id: number) => Promise<void>;
   cloneTask: (id: number) => Promise<void>;
@@ -114,6 +115,7 @@ function backendToTask(t: TaskFromBackend): Task {
     position: t.position,
     created_at: t.created_at,
     updated_at: t.updated_at,
+    completed_in_pomodoro: t.completed_in_pomodoro,
   };
 }
 
@@ -237,8 +239,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     }
   },
 
-  completeTask: async (id) => {
-    await invoke<TaskFromBackend>("complete_task", { id });
+  completeTask: async (id, pomodoroNumber) => {
+    await invoke<TaskFromBackend>("complete_task", {
+      id,
+      pomodoroNumber: pomodoroNumber ?? null,
+    });
     await get().loadTasks();
   },
 

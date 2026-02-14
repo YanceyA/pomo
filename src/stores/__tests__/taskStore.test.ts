@@ -32,6 +32,7 @@ const makeBackendTask = (overrides = {}) => ({
   position: 0,
   created_at: "2026-02-14T09:00:00Z",
   updated_at: "2026-02-14T09:00:00Z",
+  completed_in_pomodoro: null,
   ...overrides,
 });
 
@@ -192,7 +193,27 @@ describe("taskStore", () => {
 
       await useTaskStore.getState().completeTask(1);
 
-      expect(mockInvoke).toHaveBeenCalledWith("complete_task", { id: 1 });
+      expect(mockInvoke).toHaveBeenCalledWith("complete_task", {
+        id: 1,
+        pomodoroNumber: null,
+      });
+    });
+
+    it("passes pomodoroNumber when provided", async () => {
+      mockInvoke
+        .mockResolvedValueOnce(
+          makeBackendTask({ status: "completed", completed_in_pomodoro: 3 }),
+        )
+        .mockResolvedValueOnce([]) // get_tasks_by_date
+        .mockResolvedValueOnce([]) // get_task_interval_counts
+        .mockResolvedValueOnce([]); // get_task_origin_dates
+
+      await useTaskStore.getState().completeTask(1, 3);
+
+      expect(mockInvoke).toHaveBeenCalledWith("complete_task", {
+        id: 1,
+        pomodoroNumber: 3,
+      });
     });
   });
 

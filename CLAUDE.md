@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** M8 PR 8.1 complete — Past day review and task copying (calendar dot indicators, copy-to-today, copied-from indicator). M6 complete (settings UI). M5 complete (timer-task association). M4 complete (task CRUD, subtasks, drag-and-drop, day scoping, edit/reopen/undo-delete). M3 complete (timer state machine + frontend). M2 complete (SQLite schema v1, TypeScript repository layer). M7 (Jira Integration) is next.
+**Current status:** M8 PR 8.1 complete — Past day review and task copying (calendar dot indicators, copy-to-today, copied-from indicator). M6 complete (settings UI). M5 PR 5.2 complete — UAT fixes (dialog redesign, completed_in_pomodoro, break overtime, auto-dismiss). M4 complete (task CRUD, subtasks, drag-and-drop, day scoping, edit/reopen/undo-delete). M3 complete (timer state machine + frontend). M2 complete (SQLite schema v2, TypeScript repository layer). M7 (Jira Integration) is next.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -182,7 +182,7 @@ Two jobs: `lint-and-test` then `build`.
 - Copy-to-day tests (4 tests) cover: linked task creation with correct `linked_from_task_id`, deep subtask copy to target day, original task unchanged, and position at end of target day.
 - Days-with-tasks tests (3 tests) cover: distinct date aggregation, subtask exclusion, and date range filtering.
 - Origin dates tests (1 test) cover: INNER JOIN returning correct origin day_date for copied tasks.
-- Current Rust test count: 99 (29 database + 32 timer + 37 task + 1 app build smoke).
+- Current Rust test count: 110 (32 database + 37 timer + 40 task + 1 app build smoke).
 
 ### Frontend Testing Notes
 - Repository tests mock the `../db` module with `vi.mock()` to avoid Tauri IPC calls.
@@ -195,9 +195,9 @@ Two jobs: `lint-and-test` then `build`.
 - Task store tests verify CRUD command invocations, date selection, dialog state management, edit dialog state, soft delete/undo flow, reopen task, copy-to-day, load days with tasks, and origin date loading.
 - Task component tests (TaskPanel, TaskCreateDialog, SubtaskItem) verify rendering of all fields, user interactions (checkbox, actions menu, form submit), correct command invocations, edit mode, toggle completion/reopen, delete guards for completed/abandoned, soft delete (no immediate invoke), inline subtask editing, undo toast flow, copy-to-today visibility/invocation, and copied-from origin indicator display/hiding.
 - DateNavigator tests verify: "Today" rendering, formatted date for non-today, Today button visibility, past-day indicator, prev/next day navigation with store updates, calendar popover open/close, calendar date selection, and loading days with tasks on calendar open.
-- IntervalAssociationDialog tests (9 tests) cover: dialog visibility, empty task state, parent-only task filtering, checkbox toggle, confirm button disabled state, link command invocation, skip dismissal, and post-confirm reload.
-- SettingsPanel tests (10 tests) cover: trigger rendering, sheet open/close, loading values from repository, saving all settings to repository, reloading timer settings after save, preset button application (25/5, 35/7), timer-active warning display, and sheet auto-close on save.
-- Current test count: 201 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 19 timer store + 26 task store + 8 timer display + 8 timer controls + 7 interval type selector + 29 task panel + 14 task create dialog + 15 subtask item + 4 task list + 12 date navigator + 9 interval association dialog + 10 settings panel).
+- IntervalAssociationDialog tests (17 tests) cover: dialog visibility, empty task state, pending-only task filtering (completed/abandoned excluded), subtask rendering nested under parents, subtask-not-as-parent, checkbox toggle, parent auto-check/uncheck cascading, all-subtasks auto-check parent, confirm button disabled, complete_task invocations (subtasks before parents), pomodoroNumber passing, link_tasks_to_interval, skip dismissal, post-confirm reload.
+- SettingsPanel tests (12 tests) cover: trigger rendering, sheet open/close, loading values from repository, saving all settings to repository, reloading timer settings after save, preset button application (25/5, 35/7), timer-active warning display, sheet auto-close on save, break overtime checkbox rendering, break overtime setting save.
+- Current test count: 220 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 24 timer store + 27 task store + 10 timer display + 10 timer controls + 7 interval type selector + 28 task panel + 14 task create dialog + 15 subtask item + 4 task list + 12 date navigator + 17 interval association dialog + 12 settings panel).
 
 ## Architecture Notes
 
@@ -242,17 +242,25 @@ Two jobs: `lint-and-test` then `build`.
 - Soft delete with undo: delete removes task from UI immediately, shows Sonner toast with "Undo" button (10s timeout). Actual backend delete fires after timeout. Undo cancels the timeout and reloads tasks.
 - App layout updated: `App.tsx` renders `<TimerPage />` + `<TaskList />` in a vertical stack.
 
-### Timer-Task Association (Implemented — PR 5.1)
+### Timer-Task Association (Implemented — PR 5.1, updated PR 5.2)
 - After a **work** interval completes, the `timer-complete` event triggers an association dialog in the frontend.
 - **Break** intervals (short/long) skip the dialog entirely — `showAssociationDialog` stays false.
-- The `IntervalAssociationDialog` component shows all parent tasks for the current day with checkboxes. User selects which tasks they worked on during the pomodoro.
-- On confirm: calls `link_tasks_to_interval` Rust command which batch-inserts into `task_interval_links` using `INSERT OR IGNORE` (UNIQUE constraint prevents duplicates).
-- On skip: dialog dismisses without any linking.
+- The `IntervalAssociationDialog` component (PR 5.2 redesign) shows "Complete Tasks" — only pending parent tasks and their pending subtasks. Completed/abandoned items are filtered out.
+- Checkbox cascading: checking parent auto-checks all subtasks; unchecking parent unchecks all; checking all subtasks auto-checks parent; unchecking one subtask unchecks parent.
+- On confirm: completes selected tasks (subtasks first, then parents) via `invoke("complete_task", { id, pomodoroNumber: completedWorkCount })`, links to interval via `link_tasks_to_interval`, reloads tasks.
+- On skip: dialog dismisses without any changes.
 - **Timer store** (`timerStore.ts`) manages dialog state: `showAssociationDialog`, `lastCompletedIntervalId`, `showAssociation()`, `dismissAssociationDialog()`.
-- **Task store** (`taskStore.ts`) loads interval counts alongside tasks via `get_task_interval_counts` Rust command (joined query on `task_interval_links`). Stored as `intervalCounts: Record<number, number>`.
-- **TaskPanel** displays linked pomodoro count (e.g., "2 pomodoros") with a clock icon when `intervalCounts[task.id] > 0`.
+- **Task store** (`taskStore.ts`) loads interval counts alongside tasks via `get_task_interval_counts` Rust command. `completeTask(id, pomodoroNumber?)` passes optional pomodoro number to backend.
+- **TaskPanel** displays "Pomodoro N" with clock icon when `task.completed_in_pomodoro != null && > 0`.
+- **`completed_in_pomodoro`** column (migration v2): stores which pomodoro number a task was completed in. Cleared to NULL on reopen.
 - Rust commands: `link_tasks_to_interval(task_ids, interval_id)`, `get_task_interval_counts(day_date)`, `copy_task_to_day(id, target_date)`, `get_days_with_tasks(start_date, end_date)`, `get_task_origin_dates(day_date)` — registered in `lib.rs`.
-- Tasks remain independently completable — association does not auto-complete tasks (G-4, TK-12).
+
+### Break Overtime (Implemented — PR 5.2)
+- Optional feature toggled by `break_overtime_enabled` setting (default: false).
+- When enabled, break timers count up past zero after completion, showing `-MM:SS` in amber.
+- **Rust state machine:** `TimerInner` has `overtime`, `break_overtime_enabled`, `overtime_start` fields. On break completion with overtime enabled: completes interval in DB (planned duration), enters overtime mode, emits `timer-complete` with `overtime: true`, continues ticking with `overtime_ms`. Cancel during overtime resets to idle without DB write (already completed).
+- **Frontend:** Timer store tracks `overtime`, `overtimeMs`, `breakOvertimeEnabled`. `TimerDisplay` shows negative time in `text-amber-500`. `TimerControls` shows single "Stop" button. `SettingsPanel` has checkbox toggle.
+- `startTimer` auto-dismisses any active completion notice (UAT 6 fix).
 
 ### Settings (Implemented — PR 6.1)
 - **SettingsPanel** (`src/components/SettingsPanel.tsx`): shadcn/ui Sheet (slide-out panel) triggered by a gear icon in the top-right corner.
@@ -273,7 +281,7 @@ Two jobs: `lint-and-test` then `build`.
 
 ### Database
 - SQLite with 4 tables: `user_settings`, `timer_intervals`, `tasks`, `task_interval_links`.
-- Schema managed via `PRAGMA user_version` (currently v1). Migration runner in `src-tauri/src/database.rs`.
+- Schema managed via `PRAGMA user_version` (currently v2). Migration runner in `src-tauri/src/database.rs`. V2 adds `completed_in_pomodoro` column to tasks and `break_overtime_enabled` setting.
 - `PRAGMA foreign_keys = ON` set on every connection.
 - WAL mode for local paths; `journal_mode=DELETE` for cloud-synced paths (OneDrive/Dropbox/Google Drive/iCloud) — auto-detected by `is_cloud_synced_path()`.
 - DB file created at `$APPDATA/com.pomo.app/pomo.db` on first launch (Tauri setup hook).
@@ -284,7 +292,7 @@ Two jobs: `lint-and-test` then `build`.
 - Tasks support one level of subtasks via `parent_task_id` (enforced by `enforce_single_level_subtasks` trigger).
 - Cross-day task copies linked via `linked_from_task_id` (SET NULL on delete).
 - All timestamps are ISO 8601 UTC text.
-- Default settings seeded on first run: work=25min, short break=5min, long break=15min, frequency=4, Jira disabled.
+- Default settings seeded on first run: work=25min, short break=5min, long break=15min, frequency=4, Jira disabled, break overtime disabled.
 
 ### Jira Integration
 - Read-only integration — no data is written back to Jira.

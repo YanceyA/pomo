@@ -483,14 +483,44 @@ main (protected, always releasable)
 | 3 | Complete a break interval — no association dialog | TODO |
 | 4 | Task panel shows which pomodoro(s) it was logged against | TODO |
 
-**user note testing issues to resolve:
-UAT 1 - At the end of a pomodoro the task popup is to mark a pomodoro as complete, not to log # of pomodoros. Marking a task as compelte in the popup should associate that task completion with that specific pomodoro.
-UAT 2- THe post pomodoro popup is not showing sub tasks
-UAT 3- tHe pop pomodoro popup should not show compelted tasks or sub tasks.
-UAT 4 - In the popup, marking a task as completed there should also mark the task as complete in the main window.
-UAT 5 - The current number of pomodoros attached to a task can be updated to just show the pomodoro number it was compelted in i.e. pomodoro 3.
-UAT 6 - Misc, the panel indicating to take a break should autodismiss if a new timer is started
-UAT 7 - Misc, i would like a setting that can toggle the break timers to go into negative counting up to indicate when a break time was exceeded for reference only.
+**UAT findings (from user testing):**
+- UAT 1: Post-pomodoro dialog should mark tasks as *complete*, not log pomodoro counts
+- UAT 2: Dialog not showing subtasks
+- UAT 3: Dialog should not show completed/abandoned tasks or subtasks
+- UAT 4: Completing a task in the dialog should also mark it complete in the main window
+- UAT 5: Show "Pomodoro N" (the pomodoro number it was completed in) instead of count
+- UAT 6: Break completion notice should auto-dismiss when a new timer starts
+- UAT 7: Setting to toggle break timers into negative (counting up) when exceeded
+
+### PR 5.2 — UAT Fixes for Timer-Task Association ✅ COMPLETE
+
+**Status:** Done (2026-02-15). All testing gates passed (110 Rust tests, 220 Vitest tests).
+
+**Scope:**
+- **UAT 1-4:** Redesigned `IntervalAssociationDialog` from "log work" to "mark tasks complete"
+  - Title: "Complete Tasks" — checking a task marks it completed
+  - Shows pending subtasks nested under parents with checkbox cascading
+  - Filters out completed and abandoned tasks
+  - On confirm: completes selected tasks (subtasks first, then parents), links to interval, reloads main task list
+- **UAT 5:** Added `completed_in_pomodoro` column (migration v2), `TaskPanel` shows "Pomodoro N"
+- **UAT 6:** `startTimer` auto-dismisses completion notice (`showCompletionNotice: false`)
+- **UAT 7:** Break overtime feature — break timers count up past zero showing `-MM:SS` in amber
+
+**Notes:**
+- **Database migration v2:** `ALTER TABLE tasks ADD COLUMN completed_in_pomodoro INTEGER` + `break_overtime_enabled` setting
+- **Rust `complete_task` updated:** accepts `pomodoro_number: Option<i64>`, `reopen_task` clears it to NULL
+- **Timer overtime state machine:** `TimerInner` gains `overtime`, `break_overtime_enabled`, `overtime_start` fields. On break completion with overtime enabled: completes interval in DB, enters overtime mode, emits `timer-complete` with `overtime: true`, continues ticking with `overtime_ms` in tick payload. Cancel during overtime skips DB write (already completed).
+- **Frontend overtime:** Timer store tracks `overtime`, `overtimeMs`, `breakOvertimeEnabled`. `TimerDisplay` shows `-MM:SS` in `text-amber-500` during overtime. `TimerControls` shows single "Stop" button during overtime. `SettingsPanel` has "Show overtime on break timers" checkbox.
+- **Checkbox cascading in dialog:** Check parent → auto-check all subtasks. Uncheck parent → uncheck all. Check all subtasks → auto-check parent. Uncheck one subtask → uncheck parent.
+
+**Testing:**
+- Rust: migration v2 (column, setting, idempotent), complete_task with/without pomodoro number, reopen clears pomodoro, overtime state machine (5 tests) — **PASS**
+- Vitest: dialog redesign (17 tests), timer store overtime (4 tests), timer display overtime (2 tests), timer controls overtime (2 tests), settings overtime checkbox (2 tests) — **PASS**
+- `npm run lint` passes — **PASS**
+- `npm run typecheck` passes — **PASS**
+- `npm run test` passes (220 tests) — **PASS**
+- `cargo test` passes (110 tests) — **PASS**
+- `cargo clippy -- -D warnings` passes — **PASS**
 
 ---
 
@@ -923,3 +953,9 @@ Run this against the final build before tagging v1.0.
 | **Rust learning curve** | High — slows backend development | Keep Rust code simple. Lean on `tauri-plugin-sql` for data access. Only write custom Rust for timer, audio, Jira HTTP, and credentials. |
 | **WebView2 inconsistencies** | Low — rendering differences from Chrome | Test on Windows 10 and 11. WebView2 is Chromium-based so issues are rare. |
 | **Cloud-sync DB corruption** | Medium — WAL files synced independently | Default to `journal_mode=DELETE` for cloud paths. Checkpoint on close for local WAL. Document the risk. |
+
+
+UAT - Test Notes:
+- When a sub task is compelted on a pomodoro it should have a small marker showing what pomodoro it was compelted on.
+- Completing all the sub tasks for a task should not automatically complete the task. The subtasks can be completed in different pomodoros from the parent task. A parent task and it's subtasks can be completed at the same time or differently. Again, a parent task can't be compelted unless all it's sub tasks are complete or abandoned.
+- Persistance on the interval timer of the day. Loading the program showed tasks as complete on a pomodoro, but the overall day pomodoro count was reset.

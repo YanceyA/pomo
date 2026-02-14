@@ -15,17 +15,21 @@ interface TimerStatus {
   planned_duration_seconds: number;
   interval_id: number | null;
   completed_work_count: number;
+  overtime: boolean;
+  overtime_ms: number;
 }
 
 interface TimerTickPayload {
   remaining_ms: number;
   interval_type: IntervalType;
+  overtime_ms: number;
 }
 
 interface TimerCompletePayload {
   interval_id: number;
   interval_type: IntervalType;
   completed_work_count: number;
+  overtime: boolean;
 }
 
 // ── Store interface ────────────────────────────────────────
@@ -39,11 +43,16 @@ export interface TimerStore {
   intervalId: number | null;
   completedWorkCount: number;
 
+  // Overtime
+  overtime: boolean;
+  overtimeMs: number;
+
   // Settings
   workDuration: number;
   shortBreakDuration: number;
   longBreakDuration: number;
   longBreakFrequency: number;
+  breakOvertimeEnabled: boolean;
 
   // Completion notification
   showCompletionNotice: boolean;
@@ -98,6 +107,8 @@ function applyStatus(status: TimerStatus): Partial<TimerStore> {
     plannedDurationSeconds: status.planned_duration_seconds,
     intervalId: status.interval_id ?? null,
     completedWorkCount: status.completed_work_count,
+    overtime: status.overtime,
+    overtimeMs: status.overtime_ms,
   };
 }
 
@@ -112,11 +123,16 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
   intervalId: null,
   completedWorkCount: 0,
 
+  // Overtime
+  overtime: false,
+  overtimeMs: 0,
+
   // Default settings
   workDuration: 1500,
   shortBreakDuration: 300,
   longBreakDuration: 900,
   longBreakFrequency: 4,
+  breakOvertimeEnabled: false,
 
   // Completion
   showCompletionNotice: false,
@@ -136,7 +152,13 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
       intervalType: selectedType,
       durationSeconds: duration,
     });
-    set(applyStatus(status));
+    set({
+      ...applyStatus(status),
+      showCompletionNotice: false,
+      completedIntervalType: null,
+      overtime: false,
+      overtimeMs: 0,
+    });
   },
 
   pauseTimer: async () => {
@@ -151,7 +173,7 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
 
   cancelTimer: async () => {
     const status = await invoke<TimerStatus>("cancel_timer");
-    set(applyStatus(status));
+    set({ ...applyStatus(status), overtime: false, overtimeMs: 0 });
   },
 
   setSelectedType: (type: IntervalType) => {
@@ -182,6 +204,7 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
       longBreakDuration:
         (Number(map.get("long_break_duration_minutes")) || 15) * 60,
       longBreakFrequency: Number(map.get("long_break_frequency")) || 4,
+      breakOvertimeEnabled: map.get("break_overtime_enabled") === "true",
     });
   },
 
@@ -197,6 +220,7 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
         set({
           remainingMs: event.payload.remaining_ms,
           intervalType: event.payload.interval_type,
+          overtimeMs: event.payload.overtime_ms,
         });
       },
     );
@@ -205,17 +229,30 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
       "timer-complete",
       (event) => {
         const isWork = event.payload.interval_type === "work";
-        set({
-          state: "idle",
-          remainingMs: 0,
-          intervalId: null,
-          completedWorkCount: event.payload.completed_work_count,
-          showCompletionNotice: true,
-          completedIntervalType: event.payload.interval_type,
-          // Show association dialog only for work intervals
-          showAssociationDialog: isWork,
-          lastCompletedIntervalId: isWork ? event.payload.interval_id : null,
-        });
+        if (event.payload.overtime) {
+          // Break overtime: interval completed but timer keeps running
+          set({
+            overtime: true,
+            overtimeMs: 0,
+            completedWorkCount: event.payload.completed_work_count,
+            showCompletionNotice: true,
+            completedIntervalType: event.payload.interval_type,
+          });
+        } else {
+          set({
+            state: "idle",
+            remainingMs: 0,
+            intervalId: null,
+            completedWorkCount: event.payload.completed_work_count,
+            showCompletionNotice: true,
+            completedIntervalType: event.payload.interval_type,
+            overtime: false,
+            overtimeMs: 0,
+            // Show association dialog only for work intervals
+            showAssociationDialog: isWork,
+            lastCompletedIntervalId: isWork ? event.payload.interval_id : null,
+          });
+        }
       },
     );
 

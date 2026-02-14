@@ -247,4 +247,36 @@ describe("SettingsPanel", () => {
       expect(screen.queryByTestId("settings-panel")).not.toBeInTheDocument();
     });
   });
+
+  it("renders break overtime checkbox", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-break-overtime")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText("Show overtime on break timers"),
+    ).toBeInTheDocument();
+  });
+
+  it("saves break overtime setting", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel />);
+
+    await user.click(screen.getByTestId("settings-trigger"));
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-break-overtime")).toBeInTheDocument();
+    });
+
+    // Toggle the checkbox
+    await user.click(screen.getByTestId("settings-break-overtime"));
+    await user.click(screen.getByTestId("settings-save"));
+
+    await waitFor(() => {
+      expect(mockSet).toHaveBeenCalledWith("break_overtime_enabled", "true");
+    });
+  });
 });

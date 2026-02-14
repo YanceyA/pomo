@@ -19,6 +19,7 @@ const makeTask = (overrides = {}) => ({
   position: 0,
   created_at: "2026-02-14T09:00:00Z",
   updated_at: "2026-02-14T09:00:00Z",
+  completed_in_pomodoro: null,
   ...overrides,
 });
 

@@ -40,6 +40,7 @@ impl IntervalType {
 pub struct TimerTickPayload {
     pub remaining_ms: u64,
     pub interval_type: IntervalType,
+    pub overtime_ms: u64,
 }
 
 #[derive(Clone, Serialize)]
@@ -47,6 +48,7 @@ pub struct TimerCompletePayload {
     pub interval_id: i64,
     pub interval_type: IntervalType,
     pub completed_work_count: u32,
+    pub overtime: bool,
 }
 
 // ── Timer status (returned by commands) ─────────────────────
@@ -59,6 +61,8 @@ pub struct TimerStatus {
     pub planned_duration_seconds: u32,
     pub interval_id: Option<i64>,
     pub completed_work_count: u32,
+    pub overtime: bool,
+    pub overtime_ms: u64,
 }
 
 // ── Timer inner state ───────────────────────────────────────
@@ -71,6 +75,9 @@ pub struct TimerInner {
     planned_duration_seconds: u32,
     interval_id: Option<i64>,
     completed_work_count: u32,
+    overtime: bool,
+    break_overtime_enabled: bool,
+    overtime_start: Option<Instant>,
 }
 
 /// Convert a `Duration` to milliseconds without truncation casts.
@@ -88,10 +95,16 @@ impl TimerInner {
             planned_duration_seconds: 0,
             interval_id: None,
             completed_work_count: 0,
+            overtime: false,
+            break_overtime_enabled: false,
+            overtime_start: None,
         }
     }
 
     fn compute_remaining_ms(&self) -> u64 {
+        if self.overtime {
+            return 0;
+        }
         match self.state {
             TimerState::Running => self.end_instant.map_or(0, |end| {
                 let now = Instant::now();
@@ -106,6 +119,21 @@ impl TimerInner {
         }
     }
 
+    fn compute_overtime_ms(&self) -> u64 {
+        if self.overtime {
+            self.overtime_start.map_or(0, |start| {
+                duration_to_ms(Instant::now().duration_since(start))
+            })
+        } else {
+            0
+        }
+    }
+
+    fn enter_overtime(&mut self) {
+        self.overtime = true;
+        self.overtime_start = Some(Instant::now());
+    }
+
     fn status(&self) -> TimerStatus {
         TimerStatus {
             state: self.state,
@@ -114,6 +142,8 @@ impl TimerInner {
             planned_duration_seconds: self.planned_duration_seconds,
             interval_id: self.interval_id,
             completed_work_count: self.completed_work_count,
+            overtime: self.overtime,
+            overtime_ms: self.compute_overtime_ms(),
         }
     }
 
@@ -159,11 +189,23 @@ impl TimerInner {
     }
 
     /// Transition from Running|Paused → Idle on cancel.
-    /// Returns the elapsed time in seconds.
+    /// Returns the elapsed time in seconds (or 0 if in overtime, since interval is already completed).
     fn cancel(&mut self) -> Result<u32, &'static str> {
         if self.state == TimerState::Idle {
             return Err("Timer is not active");
         }
+
+        if self.overtime {
+            // Interval already completed in DB — just reset state
+            self.state = TimerState::Idle;
+            self.end_instant = None;
+            self.remaining_ms = 0;
+            self.overtime = false;
+            self.overtime_start = None;
+            self.interval_id = None;
+            return Ok(0);
+        }
+
         let remaining_ms = self.compute_remaining_ms();
         let planned_ms = u64::from(self.planned_duration_seconds) * 1000;
         let elapsed_ms = planned_ms.saturating_sub(remaining_ms);
@@ -172,6 +214,8 @@ impl TimerInner {
         self.state = TimerState::Idle;
         self.end_instant = None;
         self.remaining_ms = 0;
+        self.overtime = false;
+        self.overtime_start = None;
         // interval_id is intentionally NOT cleared here — caller reads it before reset
         Ok(u32::try_from(elapsed_seconds).unwrap_or(u32::MAX))
     }
@@ -187,6 +231,8 @@ impl TimerInner {
         self.end_instant = None;
         self.remaining_ms = 0;
         self.interval_id = None;
+        self.overtime = false;
+        self.overtime_start = None;
     }
 }
 
@@ -283,6 +329,21 @@ fn spawn_tick_task<R: Runtime>(app: AppHandle<R>) {
                 if timer.state != TimerState::Running {
                     return; // Timer no longer running — exit task
                 }
+
+                // In overtime mode, keep ticking with overtime_ms
+                if timer.overtime {
+                    let overtime_ms = timer.compute_overtime_ms();
+                    let _ = app.emit(
+                        "timer-tick",
+                        TimerTickPayload {
+                            remaining_ms: 0,
+                            interval_type: timer.interval_type,
+                            overtime_ms,
+                        },
+                    );
+                    continue;
+                }
+
                 let Some(end) = timer.end_instant else {
                     return;
                 };
@@ -291,14 +352,51 @@ fn spawn_tick_task<R: Runtime>(app: AppHandle<R>) {
                     timer.interval_type,
                     timer.interval_id.unwrap_or(0),
                     timer.planned_duration_seconds,
+                    timer.break_overtime_enabled,
                 )
             };
 
-            let (end, interval_type, interval_id, planned) = tick_data;
+            let (end, interval_type, interval_id, planned, break_overtime_enabled) = tick_data;
             let now = Instant::now();
 
             if now >= end {
-                // Timer completed
+                let is_break = matches!(interval_type, IntervalType::ShortBreak | IntervalType::LongBreak);
+
+                if is_break && break_overtime_enabled {
+                    // Complete the interval in DB, enter overtime mode
+                    let db_path = state.db_path.clone();
+                    let completed_work_count = {
+                        let mut timer = state.timer.lock().expect("timer lock poisoned");
+                        if timer.state != TimerState::Running {
+                            return;
+                        }
+                        timer.complete();
+                        let cwc = timer.completed_work_count;
+                        // Re-enter Running state for overtime display
+                        timer.state = TimerState::Running;
+                        timer.interval_type = interval_type;
+                        timer.enter_overtime();
+                        cwc
+                    };
+
+                    let end_time = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+                    let _ = db_complete_interval(&db_path, interval_id, &end_time, planned);
+
+                    let _ = app.emit(
+                        "timer-complete",
+                        TimerCompletePayload {
+                            interval_id,
+                            interval_type,
+                            completed_work_count,
+                            overtime: true,
+                        },
+                    );
+
+                    // Continue loop — don't return, overtime ticking will happen
+                    continue;
+                }
+
+                // Normal completion
                 let db_path = state.db_path.clone();
                 let completed_work_count = {
                     let mut timer = state.timer.lock().expect("timer lock poisoned");
@@ -319,6 +417,7 @@ fn spawn_tick_task<R: Runtime>(app: AppHandle<R>) {
                         interval_id,
                         interval_type,
                         completed_work_count,
+                        overtime: false,
                     },
                 );
 
@@ -332,6 +431,7 @@ fn spawn_tick_task<R: Runtime>(app: AppHandle<R>) {
                 TimerTickPayload {
                     remaining_ms,
                     interval_type,
+                    overtime_ms: 0,
                 },
             );
         }
@@ -353,6 +453,18 @@ pub fn start_timer<R: Runtime>(
         return Err("Duration must be greater than zero".into());
     }
 
+    // Read break overtime setting from DB
+    let break_overtime_enabled = {
+        let conn = open_db(&state.db_path)?;
+        conn.query_row(
+            "SELECT value FROM user_settings WHERE key = 'break_overtime_enabled'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap_or_else(|_| "false".to_string())
+            == "true"
+    };
+
     let start_time = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let interval_id =
         db_insert_interval(&state.db_path, interval_type, &start_time, duration_seconds)?;
@@ -362,6 +474,7 @@ pub fn start_timer<R: Runtime>(
             .timer
             .lock()
             .map_err(|e| format!("Lock error: {e}"))?;
+        timer.break_overtime_enabled = break_overtime_enabled;
         timer
             .start(interval_type, duration_seconds, interval_id)
             .map_err(String::from)?;
@@ -405,19 +518,25 @@ pub fn resume_timer<R: Runtime>(
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
 pub fn cancel_timer(state: tauri::State<'_, AppState>) -> Result<TimerStatus, String> {
-    let (interval_id, elapsed_seconds, status) = {
+    let (interval_id, elapsed_seconds, was_overtime, status) = {
         let mut timer = state
             .timer
             .lock()
             .map_err(|e| format!("Lock error: {e}"))?;
         let id = timer.interval_id.unwrap_or(0);
+        let was_ot = timer.overtime;
         let elapsed = timer.cancel().map_err(String::from)?;
-        timer.interval_id = None;
-        (id, elapsed, timer.status())
+        if !was_ot {
+            timer.interval_id = None;
+        }
+        (id, elapsed, was_ot, timer.status())
     };
 
-    let end_time = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    db_cancel_interval(&state.db_path, interval_id, &end_time, elapsed_seconds)?;
+    // If in overtime, interval is already completed in DB — don't write again
+    if !was_overtime {
+        let end_time = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        db_cancel_interval(&state.db_path, interval_id, &end_time, elapsed_seconds)?;
+    }
 
     Ok(status)
 }
@@ -831,6 +950,66 @@ mod tests {
         timer.start(IntervalType::Work, 1500, 6).unwrap();
         timer.complete();
         assert_eq!(timer.completed_work_count, 1);
+    }
+
+    // ── Overtime tests ──────────────────────────────────────
+
+    #[test]
+    fn new_timer_has_overtime_disabled() {
+        let timer = TimerInner::new();
+        assert!(!timer.overtime);
+        assert!(!timer.break_overtime_enabled);
+        assert!(timer.overtime_start.is_none());
+    }
+
+    #[test]
+    fn enter_overtime_sets_flag() {
+        let mut timer = TimerInner::new();
+        timer.state = TimerState::Running;
+        timer.enter_overtime();
+        assert!(timer.overtime);
+        assert!(timer.overtime_start.is_some());
+    }
+
+    #[test]
+    fn cancel_during_overtime_resets_to_idle() {
+        let mut timer = TimerInner::new();
+        timer.start(IntervalType::ShortBreak, 300, 1).unwrap();
+        timer.complete(); // Simulate break completion
+        timer.state = TimerState::Running; // Re-enter for overtime
+        timer.overtime = true;
+        timer.overtime_start = Some(Instant::now());
+
+        let elapsed = timer.cancel().unwrap();
+        assert_eq!(timer.state, TimerState::Idle);
+        assert!(!timer.overtime);
+        assert!(timer.overtime_start.is_none());
+        assert_eq!(elapsed, 0); // Overtime cancel returns 0
+    }
+
+    #[test]
+    fn cancel_during_overtime_does_not_change_work_count() {
+        let mut timer = TimerInner::new();
+        // Complete a work interval first
+        timer.start(IntervalType::Work, 25, 1).unwrap();
+        timer.complete();
+        assert_eq!(timer.completed_work_count, 1);
+
+        // Start break, enter overtime
+        timer.start(IntervalType::ShortBreak, 5, 2).unwrap();
+        timer.complete();
+        timer.state = TimerState::Running;
+        timer.overtime = true;
+        timer.overtime_start = Some(Instant::now());
+
+        timer.cancel().unwrap();
+        assert_eq!(timer.completed_work_count, 1); // Unchanged
+    }
+
+    #[test]
+    fn overtime_compute_ms_is_zero_when_not_overtime() {
+        let timer = TimerInner::new();
+        assert_eq!(timer.compute_overtime_ms(), 0);
     }
 
     #[test]

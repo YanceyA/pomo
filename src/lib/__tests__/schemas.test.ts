@@ -109,6 +109,7 @@ describe("taskSchema", () => {
       position: 0,
       created_at: "2026-02-14T09:00:00Z",
       updated_at: "2026-02-14T09:00:00Z",
+      completed_in_pomodoro: null,
     };
     expect(taskSchema.parse(data)).toEqual(data);
   });
@@ -126,6 +127,7 @@ describe("taskSchema", () => {
       position: 0,
       created_at: "2026-02-14T09:00:00Z",
       updated_at: "2026-02-14T09:00:00Z",
+      completed_in_pomodoro: 3,
     };
     expect(taskSchema.parse(data)).toEqual(data);
   });
@@ -143,6 +145,7 @@ describe("taskSchema", () => {
       position: 0,
       created_at: "2026-02-14T09:00:00Z",
       updated_at: "2026-02-14T09:00:00Z",
+      completed_in_pomodoro: null,
     };
     expect(() => taskSchema.parse(data)).toThrow();
   });
@@ -159,6 +162,7 @@ describe("taskSchema", () => {
       position: 0,
       created_at: "2026-02-14T09:00:00Z",
       updated_at: "2026-02-14T09:00:00Z",
+      completed_in_pomodoro: null,
     };
     expect(() => taskSchema.parse(data)).toThrow();
   });

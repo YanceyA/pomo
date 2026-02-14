@@ -8,95 +8,102 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
+**Current status:** M1 PR 1.1 complete — project scaffolding with all dependencies installed. App shell renders "Pomo" with a styled shadcn/ui Button in a Tauri window.
+
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
 - [pomo-tech.md](./docs/pomo-tech.md) — Technical architecture decisions and confirmed stack
 - [pomo-dev-plan.md](./docs/pomo-dev-plan.md) — Milestones, PRs, and UAT criteria
 
-## Tech Stack
+## Tech Stack (Installed)
 
 ```
-Shell:              Tauri v2 (Rust backend + WebView2)
-Frontend:           React 19 + TypeScript
-Build:              Vite 6+
+Shell:              Tauri v2.10 (Rust backend + WebView2)
+Frontend:           React 19.1 + TypeScript 5.8
+Build:              Vite 7
 Components:         shadcn/ui (Radix primitives + Tailwind CSS v4)
-State:              Zustand
-Drag-and-drop:      @dnd-kit/core + @dnd-kit/sortable
-Charts:             Chart.js v4 + react-chartjs-2
-Date navigation:    react-day-picker
-Forms:              React Hook Form + Zod
-Audio:              Web Audio API + rodio (Rust fallback)
-Database:           SQLite via tauri-plugin-sql + rusqlite
-Query layer:        Raw SQL with typed TypeScript repository wrappers
-Migrations:         Custom versioned scripts via PRAGMA user_version
-Jira HTTP:          reqwest (Rust) via Tauri commands
-Credentials:        keyring crate (Windows Credential Manager)
-MCP:                @anthropic-ai/mcp-server-sqlite
+State:              Zustand 5
+Drag-and-drop:      @dnd-kit/core 6 + @dnd-kit/sortable 10
+Charts:             Chart.js 4 + react-chartjs-2 5
+Date navigation:    react-day-picker 9
+Forms:              React Hook Form 7 + Zod 4
+Styling:            Tailwind CSS v4 (via @tailwindcss/vite plugin)
+UI utilities:       class-variance-authority, clsx, tailwind-merge, lucide-react
 Packaging:          NSIS installer via Tauri bundler
 ```
 
-## Testing Stack
-
+### Not Yet Installed (Future Milestones)
 ```
-Frontend unit:      Vitest + React Testing Library + jsdom
-Backend unit:       cargo test (rusqlite in-memory DB)
-Integration:        Vitest with mocked Tauri IPC (@tauri-apps/api)
-E2E:                WebdriverIO (Tauri WebDriver)
-API mocking:        MSW (frontend) + mockito (Rust)
-Linting:            Biome (TS/JS) + Clippy (Rust)
-Coverage:           v8 provider via Vitest
+Audio:              Web Audio API + rodio (Rust fallback) — M10
+Database:           tauri-plugin-sql + rusqlite — M2
+Jira HTTP:          reqwest (Rust) — M7
+Credentials:        keyring crate — M7
+MCP:                @anthropic-ai/mcp-server-sqlite — M10
+Testing:            Vitest, RTL, Biome, Clippy — M1 PR 1.2
 ```
 
-## Project Structure (Expected)
+## Project Structure (Actual)
 
 ```
 pomo/
-├── docs/                   # Spec, tech decisions, dev plan
-├── src/                    # React frontend
-│   ├── components/         # UI components (shadcn/ui based)
-│   ├── stores/             # Zustand stores (timer, tasks, settings)
-│   ├── repositories/       # Typed SQL wrappers for tauri-plugin-sql
-│   ├── lib/                # Utilities, Zod schemas, types
-│   └── test/               # Test setup and mocks
-├── src-tauri/              # Rust backend (Tauri)
+├── docs/                       # Spec, tech decisions, dev plan
+├── src/                        # React frontend
+│   ├── components/
+│   │   └── ui/
+│   │       └── button.tsx      # shadcn/ui Button component
+│   ├── lib/
+│   │   └── utils.ts            # cn() utility (clsx + tailwind-merge)
+│   ├── App.tsx                 # Root component — "Pomo" heading + Button
+│   ├── main.tsx                # React entry point
+│   ├── index.css               # Tailwind CSS v4 + shadcn/ui theme variables
+│   └── vite-env.d.ts           # Vite type declarations
+├── src-tauri/                  # Rust backend (Tauri)
 │   ├── src/
-│   │   ├── main.rs         # Tauri entry point
-│   │   ├── lib.rs          # Tauri app builder and command registration
-│   │   ├── timer.rs        # Timer state machine (Tokio async)
-│   │   ├── db.rs           # Database migrations and setup
-│   │   ├── jira.rs         # Jira API validation (reqwest)
-│   │   └── commands/       # Tauri command handlers
-│   ├── migrations/         # SQL migration scripts
-│   └── Cargo.toml
-├── e2e/                    # WebdriverIO E2E tests
-├── CLAUDE.md               # This file
-├── biome.json              # Biome linter/formatter config
-├── vitest.config.ts        # Vitest config
-├── tailwind.config.ts      # Tailwind CSS config
-├── tsconfig.json           # TypeScript config (strict mode, path aliases)
-├── vite.config.ts          # Vite config
-└── package.json
+│   │   ├── main.rs             # Windows entry point → pomo_lib::run()
+│   │   └── lib.rs              # Tauri app builder
+│   ├── capabilities/
+│   │   └── default.json        # Tauri capability permissions
+│   ├── icons/                  # App icons (various sizes)
+│   ├── build.rs                # Tauri build script
+│   ├── Cargo.toml              # Rust dependencies
+│   └── tauri.conf.json         # Tauri config (app name, window size, bundling)
+├── public/                     # Static assets served by Vite
+├── CLAUDE.md                   # This file
+├── components.json             # shadcn/ui configuration
+├── tsconfig.json               # TypeScript config (strict, path aliases: @/ → src/)
+├── tsconfig.node.json          # TypeScript config for Vite/Node files
+├── vite.config.ts              # Vite config (React, Tailwind, path aliases)
+├── package.json                # npm scripts and dependencies
+└── index.html                  # HTML entry point
 ```
 
 ## Build & Run Commands
 
 ```bash
 # Development
-cargo tauri dev              # Launch app in dev mode (Vite HMR + Rust backend)
+npm run tauri dev            # Launch app in dev mode (Vite HMR + Rust backend)
+npm run dev                  # Start Vite dev server only (no Tauri)
 
-# Frontend
-npm run test                 # Run Vitest unit/integration tests
-npm run test:coverage        # Run tests with v8 coverage
-npm run lint                 # Biome lint check
-npm run lint:fix             # Biome lint + auto-fix
+# Frontend checks
 npm run typecheck            # tsc --noEmit
+npm run build                # tsc && vite build (production frontend build)
 
 # Backend (from src-tauri/)
-cargo test                   # Run Rust unit tests
-cargo clippy                 # Rust linter
+cargo check                  # Fast Rust compile check
+cargo build                  # Full Rust build
 
 # Production build
-cargo tauri build            # Build NSIS installer
+npm run tauri build          # Build NSIS installer
+```
+
+### Not Yet Configured (M1 PR 1.2)
+```bash
+npm run test                 # Vitest (not yet installed)
+npm run test:coverage        # Vitest + v8 coverage (not yet installed)
+npm run lint                 # Biome (not yet installed)
+npm run lint:fix             # Biome auto-fix (not yet installed)
+cargo test                   # Rust tests (not yet written)
+cargo clippy                 # Clippy (not yet configured)
 ```
 
 ## Architecture Notes
@@ -125,10 +132,12 @@ cargo tauri build            # Build NSIS installer
 - API validation can be toggled off entirely in settings.
 
 ### Frontend Patterns
+- **Path aliases:** `@/` maps to `./src/` (configured in tsconfig.json and vite.config.ts).
+- **Tailwind CSS v4:** Uses `@tailwindcss/vite` plugin — no `tailwind.config.ts` file. Theme configured in `src/index.css` using `@theme` directives.
+- **shadcn/ui:** Components in `src/components/ui/`. Add new components with `npx shadcn@latest add <name>`. Config in `components.json`.
 - Zustand stores for timer state, task state, and settings.
 - Typed TypeScript repository wrappers around `tauri-plugin-sql` `execute`/`select` calls (no ORM).
 - Zod schemas for runtime validation of DB results and form inputs.
-- shadcn/ui components with Tailwind CSS for styling.
 
 ## Development Plan (10 Milestones)
 
@@ -154,6 +163,7 @@ Branch naming: `feat/M{n}-{description}` (e.g., `feat/M1-scaffolding`). All PRs 
 - **Day-scoped tasks** — every task belongs to a specific calendar day (YYYY-MM-DD).
 - **Biome** for TS/JS linting and formatting (not ESLint/Prettier).
 - **Clippy** for Rust linting.
+- **shadcn/ui** components added via CLI (`npx shadcn@latest add <name>`), not manually created.
 
 ## Keeping This File Updated
 

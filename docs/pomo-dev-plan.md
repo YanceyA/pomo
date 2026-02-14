@@ -43,7 +43,9 @@ main (protected, always releasable)
 
 **Goal:** Empty app shell with all tooling configured. "Hello World" renders in a Tauri window.
 
-### PR 1.1 — Initialize Tauri + React + TypeScript project
+### PR 1.1 — Initialize Tauri + React + TypeScript project ✅ COMPLETE
+
+**Status:** Done (2026-02-14). All tests passed.
 
 **Scope:**
 - `cargo tauri init` with React + TypeScript + Vite template
@@ -60,8 +62,8 @@ main (protected, always releasable)
 - Update `CLAUDE.md` with actual project structure, installed dependencies, and confirmed build commands
 
 **Testing:**
-- `cargo tauri dev` launches a window displaying "Pomo" with a styled Button component
-- `tsc --noEmit` passes with zero errors
+- ~~`cargo tauri dev`~~ `npm run tauri dev` launches a window displaying "Pomo" with a styled Button component — **PASS**
+- `tsc --noEmit` passes with zero errors — **PASS**
 
 ### PR 1.2 — Configure testing & linting infrastructure
 

@@ -110,21 +110,37 @@ main (protected, always releasable)
 
 **Spec coverage:** D-1, D-2, D-4, D-5, P-1
 
-### PR 2.1 — SQLite setup and schema migration
+### PR 2.1 — SQLite setup and schema migration ✅ COMPLETE
+
+**Status:** Done (2026-02-14). All testing gates passed (26 Rust tests).
 
 **Scope:**
-- Add `tauri-plugin-sql` to Rust dependencies
-- Create migration runner using `PRAGMA user_version`
+- Add `tauri-plugin-sql` (sqlite) and `rusqlite` (bundled) to Rust dependencies
+- Create migration runner using `PRAGMA user_version` in `src-tauri/src/database.rs`
 - Implement schema v1 (all 4 tables + trigger + indexes from pomo-tech.md)
-- DB file created at configurable path (default: `$APPDATA/pomo/pomo.db`)
+- DB file created at `$APPDATA/com.pomo.app/pomo.db` via Tauri setup hook
 - Enable `PRAGMA foreign_keys = ON` on every connection
-- Set journal mode (WAL for local, DELETE for cloud-synced — detect or configure)
+- Set journal mode (WAL for local, DELETE for cloud-synced — auto-detected)
 - Seed default `user_settings` rows on first run
+- Register `tauri-plugin-sql` plugin and add `sql:default` capability
+
+**Notes:**
+- `rusqlite` 0.32 (bundled) and `tauri-plugin-sql` 2.3.2 (sqlx-sqlite) share `libsqlite3-sys` 0.30.1 without conflicts.
+- Cloud-sync path detection checks for OneDrive, Dropbox, Google Drive, and iCloud in the path string.
 
 **Testing:**
-- Rust tests: migration applies cleanly to in-memory DB, all tables exist, indexes exist, trigger works
-- Rust tests: default settings are seeded
-- Rust tests: `user_version` is set to 1 after migration
+- Rust tests: migration applies cleanly to in-memory DB — **PASS**
+- Rust tests: all 4 tables exist — **PASS**
+- Rust tests: all 7 indexes exist — **PASS**
+- Rust tests: trigger exists and enforces single-level subtasks — **PASS**
+- Rust tests: default settings are seeded (6 rows) — **PASS**
+- Rust tests: `user_version` is set to 1 after migration — **PASS**
+- Rust tests: migration is idempotent — **PASS**
+- Rust tests: foreign key cascades work (subtasks, task-interval links) — **PASS**
+- Rust tests: CHECK constraints enforced on all enums — **PASS**
+- Rust tests: cloud-sync path detection — **PASS**
+- Rust tests: `linked_from_task_id` SET NULL on delete — **PASS**
+- Clippy passes with `-D warnings` — **PASS**
 
 ### PR 2.2 — TypeScript repository layer
 

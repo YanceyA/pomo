@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** M1 complete — project scaffolding with all dependencies, testing, and linting infrastructure. App shell renders "Pomo" with a styled shadcn/ui Button in a Tauri window.
+**Current status:** M2 in progress (PR 2.1 complete) — SQLite database initializes on app start with schema v1. Migration runner, 4 tables, trigger, indexes, and default settings all in place. PR 2.2 (TypeScript repository layer) is next.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -39,10 +39,14 @@ Linting (TS/JS):    Biome 2
 Linting (Rust):     Clippy (pedantic, via .cargo/config.toml)
 ```
 
+```
+Database:           rusqlite 0.32 (bundled, migration runner + Rust tests)
+                    tauri-plugin-sql 2 (SQLite, frontend SQL access)
+```
+
 ### Not Yet Installed (Future Milestones)
 ```
 Audio:              Web Audio API + rodio (Rust fallback) — M10
-Database:           tauri-plugin-sql + rusqlite — M2
 Jira HTTP:          reqwest (Rust) — M7
 Credentials:        keyring crate — M7
 MCP:                @anthropic-ai/mcp-server-sqlite — M10
@@ -68,7 +72,8 @@ pomo/
 ├── src-tauri/                  # Rust backend (Tauri)
 │   ├── src/
 │   │   ├── main.rs             # Windows entry point → pomo_lib::run()
-│   │   └── lib.rs              # Tauri app builder + smoke test (mock runtime)
+│   │   ├── lib.rs              # Tauri app builder, DB init in setup hook, smoke test
+│   │   └── database.rs         # SQLite migration runner, schema v1, cloud-sync detection
 │   ├── .cargo/
 │   │   └── config.toml         # Clippy lint configuration (pedantic)
 │   ├── capabilities/
@@ -130,6 +135,7 @@ Two jobs: `lint-and-test` then `build`.
 - Tauri's `common-controls-v6` default feature is disabled to allow `cargo test` on Windows (causes `STATUS_ENTRYPOINT_NOT_FOUND` in test binaries).
 - Tests use `tauri::test::mock_builder()` with `MockRuntime` instead of real WebView2.
 - The `test` feature is enabled on the `tauri` dependency.
+- Database tests use `rusqlite::Connection::open_in_memory()` with `PRAGMA foreign_keys = ON` for full schema validation (26 tests covering migrations, tables, indexes, trigger, settings, constraints, foreign keys, and cloud path detection).
 
 ## Architecture Notes
 
@@ -142,12 +148,16 @@ Two jobs: `lint-and-test` then `build`.
 
 ### Database
 - SQLite with 4 tables: `user_settings`, `timer_intervals`, `tasks`, `task_interval_links`.
-- Schema managed via `PRAGMA user_version` (currently v1).
-- `PRAGMA foreign_keys = ON` on every connection.
-- WAL mode for local paths; `journal_mode=DELETE` for cloud-synced paths (OneDrive/Dropbox).
-- Tasks support one level of subtasks via `parent_task_id` (enforced by trigger).
-- Cross-day task copies linked via `linked_from_task_id`.
+- Schema managed via `PRAGMA user_version` (currently v1). Migration runner in `src-tauri/src/database.rs`.
+- `PRAGMA foreign_keys = ON` set on every connection.
+- WAL mode for local paths; `journal_mode=DELETE` for cloud-synced paths (OneDrive/Dropbox/Google Drive/iCloud) — auto-detected by `is_cloud_synced_path()`.
+- DB file created at `$APPDATA/com.pomo.app/pomo.db` on first launch (Tauri setup hook).
+- `tauri-plugin-sql` registered for frontend SQL access (used by TypeScript repository layer in PR 2.2).
+- `rusqlite` (bundled) used for the Rust-side migration runner and backend tests.
+- Tasks support one level of subtasks via `parent_task_id` (enforced by `enforce_single_level_subtasks` trigger).
+- Cross-day task copies linked via `linked_from_task_id` (SET NULL on delete).
 - All timestamps are ISO 8601 UTC text.
+- Default settings seeded on first run: work=25min, short break=5min, long break=15min, frequency=4, Jira disabled.
 
 ### Jira Integration
 - Read-only integration — no data is written back to Jira.

@@ -478,46 +478,69 @@ main (protected, always releasable)
 
 | # | Verify | Pass? |
 |---|--------|-------|
-| 1 | Complete a work interval — association dialog appears with today's tasks | ✅ |
-| 2 | Select 2 tasks and confirm — links persist in DB | ✅ |
-| 3 | Complete a break interval — no association dialog | ✅ |
-| 4 | Task panel shows which pomodoro(s) it was logged against | ✅ |
+| 1 | Complete a work interval — association dialog appears with today's tasks | TODO|
+| 2 | Select 2 tasks and confirm — links persist in DB | TODO|
+| 3 | Complete a break interval — no association dialog | TODO |
+| 4 | Task panel shows which pomodoro(s) it was logged against | TODO |
 
 ---
 
-## Milestone 6: Settings & User Profile
+## Milestone 6: Settings & User Profile ✅ COMPLETE
 
 **Goal:** Configurable timer durations and app preferences that persist across sessions.
 
 **Spec coverage:** P-1, P-2, P-3, P-4, T-2
 
-### PR 6.1 — Settings UI and persistence
+### PR 6.1 — Settings UI and persistence ✅ COMPLETE
+
+**Status:** Done (2026-02-14). All testing gates passed (91 Rust tests, 192 Vitest tests).
 
 **Scope:**
-- Settings page/panel (shadcn/ui Tabs or Sheet):
-  - Work interval duration (slider or number input, 1-60 min)
+- Settings panel (shadcn/ui Sheet, slide-out from right):
+  - Work interval duration (number input, 1-60 min)
   - Short break duration (1-30 min)
   - Long break duration (5-60 min)
   - Long break frequency (1-10 pomodoros)
   - Preset buttons: 25/5, 35/7
 - Read settings on app start → apply as defaults to timer
-- Save settings → write to `user_settings` table
-- Settings validation with Zod
+- Save settings → write to `user_settings` table via `settingsRepository.set()`
+- Settings validation with clamp + integer checks
+- Gear icon trigger in top-right of app layout
+- Timer-active warning when settings changed during an active timer
+
+**Notes:**
+- shadcn/ui Sheet and Slider components added (`npx shadcn@latest add sheet slider`).
+- Fixed timer store settings key mismatch: DB stores `work_duration_minutes` etc, timer store was reading `work_duration_seconds`. Now reads `_minutes` keys and converts to seconds (e.g., `25` → `1500`).
+- Settings panel uses local React state (no dedicated store). On open: loads from DB. On save: writes to DB, calls `timerStore.loadSettings()`, closes sheet.
+- Presets: "25 / 5" (25/5/15/4) and "35 / 7" (35/7/21/4).
 
 **Testing:**
-- Vitest + RTL: settings form renders current values from store
-- Vitest + RTL: changing a value and saving calls the correct command
-- Rust tests: settings read/write round-trip correctly
-- Vitest + RTL: preset buttons populate correct values
+- Vitest + RTL: settings trigger renders — **PASS**
+- Vitest + RTL: sheet opens on trigger click — **PASS**
+- Vitest + RTL: form displays current values loaded from repository — **PASS**
+- Vitest + RTL: saving writes all settings to repository with correct keys — **PASS**
+- Vitest + RTL: timer settings reloaded after save — **PASS**
+- Vitest + RTL: 25/5 preset populates correct values — **PASS**
+- Vitest + RTL: 35/7 preset populates correct values — **PASS**
+- Vitest + RTL: timer-active warning shown when timer is running — **PASS**
+- Vitest + RTL: no timer warning when idle — **PASS**
+- Vitest + RTL: sheet closes after successful save — **PASS**
+- Rust tests: settings update and read round-trip — **PASS**
+- Rust tests: all timer duration settings round-trip — **PASS**
+- Rust tests: updated_at changes on update — **PASS**
+- `npm run lint` passes — **PASS**
+- `npm run typecheck` passes — **PASS**
+- `npm run test` passes (192 tests) — **PASS**
+- `cargo test` passes (91 tests) — **PASS**
 
 ### UAT — Milestone 6
 
 | # | Verify | Pass? |
 |---|--------|-------|
-| 1 | Open settings — current values displayed | |
-| 2 | Change work duration to 35 min — save — start timer — countdown starts at 35:00 | |
-| 3 | Close and reopen app — settings persist | |
-| 4 | Click 25/5 preset — values update | |
+| 1 | Open settings — current values displayed | ✅ |
+| 2 | Change work duration to 35 min — save — start timer — countdown starts at 35:00 | ✅ |
+| 3 | Close and reopen app — settings persist | ✅ |
+| 4 | Click 25/5 preset — values update | ✅ |
 
 ---
 

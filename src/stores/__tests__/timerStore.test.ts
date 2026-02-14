@@ -192,20 +192,20 @@ describe("timerStore", () => {
       const { getAll } = await import("@/lib/settingsRepository");
       (getAll as Mock).mockResolvedValue([
         {
-          key: "work_duration_seconds",
-          value: "1800",
+          key: "work_duration_minutes",
+          value: "30",
           type: "integer",
           updated_at: "2026-02-14T10:00:00Z",
         },
         {
-          key: "short_break_duration_seconds",
-          value: "420",
+          key: "short_break_duration_minutes",
+          value: "7",
           type: "integer",
           updated_at: "2026-02-14T10:00:00Z",
         },
         {
-          key: "long_break_duration_seconds",
-          value: "1200",
+          key: "long_break_duration_minutes",
+          value: "20",
           type: "integer",
           updated_at: "2026-02-14T10:00:00Z",
         },
@@ -220,9 +220,9 @@ describe("timerStore", () => {
       await useTimerStore.getState().loadSettings();
 
       const state = useTimerStore.getState();
-      expect(state.workDuration).toBe(1800);
-      expect(state.shortBreakDuration).toBe(420);
-      expect(state.longBreakDuration).toBe(1200);
+      expect(state.workDuration).toBe(1800); // 30 * 60
+      expect(state.shortBreakDuration).toBe(420); // 7 * 60
+      expect(state.longBreakDuration).toBe(1200); // 20 * 60
       expect(state.longBreakFrequency).toBe(3);
     });
   });

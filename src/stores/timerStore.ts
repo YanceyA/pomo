@@ -176,10 +176,11 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
     const map = new Map(settings.map((s) => [s.key, s.value]));
 
     set({
-      workDuration: Number(map.get("work_duration_seconds")) || 1500,
+      workDuration: (Number(map.get("work_duration_minutes")) || 25) * 60,
       shortBreakDuration:
-        Number(map.get("short_break_duration_seconds")) || 300,
-      longBreakDuration: Number(map.get("long_break_duration_seconds")) || 900,
+        (Number(map.get("short_break_duration_minutes")) || 5) * 60,
+      longBreakDuration:
+        (Number(map.get("long_break_duration_minutes")) || 15) * 60,
       longBreakFrequency: Number(map.get("long_break_frequency")) || 4,
     });
   },

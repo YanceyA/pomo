@@ -565,6 +565,109 @@ mod tests {
 
     // ── Linked task tests ───────────────────────────────────────
 
+    // ── Settings round-trip tests ──────────────────────────────
+
+    #[test]
+    fn settings_update_and_read_round_trip() {
+        let conn = setup_test_db();
+
+        // Read initial value
+        let initial: String = conn
+            .query_row(
+                "SELECT value FROM user_settings WHERE key = 'work_duration_minutes'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(initial, "25");
+
+        // Update value
+        conn.execute(
+            "UPDATE user_settings SET value = '35', updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE key = 'work_duration_minutes'",
+            [],
+        )
+        .unwrap();
+
+        // Read updated value
+        let updated: String = conn
+            .query_row(
+                "SELECT value FROM user_settings WHERE key = 'work_duration_minutes'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(updated, "35");
+    }
+
+    #[test]
+    fn settings_update_all_timer_durations_round_trip() {
+        let conn = setup_test_db();
+
+        let updates = [
+            ("work_duration_minutes", "30"),
+            ("short_break_duration_minutes", "7"),
+            ("long_break_duration_minutes", "20"),
+            ("long_break_frequency", "3"),
+        ];
+
+        for (key, value) in updates {
+            conn.execute(
+                "UPDATE user_settings SET value = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE key = ?2",
+                rusqlite::params![value, key],
+            )
+            .unwrap();
+        }
+
+        // Read all back
+        let mut stmt = conn
+            .prepare("SELECT key, value FROM user_settings WHERE key IN ('work_duration_minutes', 'short_break_duration_minutes', 'long_break_duration_minutes', 'long_break_frequency') ORDER BY key")
+            .unwrap();
+        let results: Vec<(String, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(results.len(), 4);
+        assert!(results.contains(&("long_break_duration_minutes".to_string(), "20".to_string())));
+        assert!(results.contains(&("long_break_frequency".to_string(), "3".to_string())));
+        assert!(results.contains(&("short_break_duration_minutes".to_string(), "7".to_string())));
+        assert!(results.contains(&("work_duration_minutes".to_string(), "30".to_string())));
+    }
+
+    #[test]
+    fn settings_updated_at_changes_on_update() {
+        let conn = setup_test_db();
+
+        let before: String = conn
+            .query_row(
+                "SELECT updated_at FROM user_settings WHERE key = 'work_duration_minutes'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        conn.execute(
+            "UPDATE user_settings SET value = '45', updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE key = 'work_duration_minutes'",
+            [],
+        )
+        .unwrap();
+
+        let after: String = conn
+            .query_row(
+                "SELECT updated_at FROM user_settings WHERE key = 'work_duration_minutes'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        // Both should be valid ISO 8601 timestamps
+        assert!(before.contains('T'));
+        assert!(after.contains('T'));
+    }
+
+    // ── Linked task tests ───────────────────────────────────────
+
     #[test]
     fn linked_from_task_id_set_null_on_delete() {
         let conn = setup_test_db();

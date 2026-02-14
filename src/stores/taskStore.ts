@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 import { create } from "zustand";
 import type { Task } from "@/lib/schemas";
 
@@ -18,6 +19,11 @@ interface TaskFromBackend {
   updated_at: string;
 }
 
+interface PendingDelete {
+  taskId: number;
+  timeoutId: number;
+}
+
 // ── Store interface ────────────────────────────────────────
 
 export interface TaskStore {
@@ -29,6 +35,13 @@ export interface TaskStore {
   // Task creation dialog
   showCreateDialog: boolean;
   createParentId: number | null;
+
+  // Task edit dialog
+  showEditDialog: boolean;
+  editTask: Task | null;
+
+  // Pending delete (undo toast)
+  pendingDelete: PendingDelete | null;
 
   // Actions
   loadTasks: (date?: string) => Promise<void>;
@@ -44,12 +57,17 @@ export interface TaskStore {
     input: { title?: string; jiraKey?: string | null; tag?: string | null },
   ) => Promise<void>;
   deleteTask: (id: number) => Promise<void>;
+  softDeleteTask: (id: number) => void;
+  undoDelete: () => void;
   completeTask: (id: number) => Promise<void>;
   abandonTask: (id: number) => Promise<void>;
+  reopenTask: (id: number) => Promise<void>;
   cloneTask: (id: number) => Promise<void>;
   reorderTasks: (taskIds: number[]) => Promise<void>;
   openCreateDialog: (parentId?: number | null) => void;
   closeCreateDialog: () => void;
+  openEditDialog: (task: Task) => void;
+  closeEditDialog: () => void;
 }
 
 // ── Helpers ────────────────────────────────────────────────
@@ -86,6 +104,9 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   isLoading: false,
   showCreateDialog: false,
   createParentId: null,
+  showEditDialog: false,
+  editTask: null,
+  pendingDelete: null,
 
   loadTasks: async (date?: string) => {
     const dayDate = date ?? get().selectedDate;
@@ -132,6 +153,47 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     await get().loadTasks();
   },
 
+  softDeleteTask: (id: number) => {
+    // Remove from UI immediately
+    const { tasks, pendingDelete } = get();
+
+    // Clear any existing pending delete
+    if (pendingDelete) {
+      clearTimeout(pendingDelete.timeoutId);
+    }
+
+    set({ tasks: tasks.filter((t) => t.id !== id && t.parent_task_id !== id) });
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        await invoke<void>("delete_task", { id });
+      } catch {
+        // If delete fails, reload to restore state
+      }
+      set({ pendingDelete: null });
+      await get().loadTasks();
+    }, 10_000);
+
+    set({ pendingDelete: { taskId: id, timeoutId } });
+
+    toast("Task deleted", {
+      action: {
+        label: "Undo",
+        onClick: () => get().undoDelete(),
+      },
+      duration: 10_000,
+    });
+  },
+
+  undoDelete: () => {
+    const { pendingDelete } = get();
+    if (pendingDelete) {
+      clearTimeout(pendingDelete.timeoutId);
+      set({ pendingDelete: null });
+      get().loadTasks();
+    }
+  },
+
   completeTask: async (id) => {
     await invoke<TaskFromBackend>("complete_task", { id });
     await get().loadTasks();
@@ -139,6 +201,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   abandonTask: async (id) => {
     await invoke<TaskFromBackend>("abandon_task", { id });
+    await get().loadTasks();
+  },
+
+  reopenTask: async (id) => {
+    await invoke<TaskFromBackend>("reopen_task", { id });
     await get().loadTasks();
   },
 
@@ -158,5 +225,13 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   closeCreateDialog: () => {
     set({ showCreateDialog: false, createParentId: null });
+  },
+
+  openEditDialog: (task: Task) => {
+    set({ showEditDialog: true, editTask: task });
+  },
+
+  closeEditDialog: () => {
+    set({ showEditDialog: false, editTask: null });
   },
 }));

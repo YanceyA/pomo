@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,43 +17,88 @@ export function TaskCreateDialog() {
   const closeCreateDialog = useTaskStore((s) => s.closeCreateDialog);
   const createTask = useTaskStore((s) => s.createTask);
 
+  const showEditDialog = useTaskStore((s) => s.showEditDialog);
+  const editTask = useTaskStore((s) => s.editTask);
+  const closeEditDialog = useTaskStore((s) => s.closeEditDialog);
+  const updateTask = useTaskStore((s) => s.updateTask);
+
   const [title, setTitle] = useState("");
   const [tag, setTag] = useState("");
   const [jiraKey, setJiraKey] = useState("");
 
-  const isSubtask = createParentId !== null;
+  const isEditing = showEditDialog && editTask !== null;
+  const isOpen = showCreateDialog || isEditing;
+  const isSubtask = isEditing
+    ? editTask.parent_task_id !== null
+    : createParentId !== null;
+
+  // Pre-populate fields when editing
+  useEffect(() => {
+    if (isEditing) {
+      setTitle(editTask.title);
+      setTag(editTask.tag ?? "");
+      setJiraKey(editTask.jira_key ?? "");
+    }
+  }, [isEditing, editTask]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
 
-    await createTask({
-      title: title.trim(),
-      tag: tag.trim() || null,
-      jiraKey: jiraKey.trim() || null,
-      parentTaskId: createParentId,
-    });
+    if (isEditing) {
+      await updateTask(editTask.id, {
+        title: title.trim(),
+        tag: tag.trim() || null,
+        jiraKey: jiraKey.trim() || null,
+      });
+      resetAndClose();
+    } else {
+      await createTask({
+        title: title.trim(),
+        tag: tag.trim() || null,
+        jiraKey: jiraKey.trim() || null,
+        parentTaskId: createParentId,
+      });
+      resetAndClose();
+    }
+  };
 
+  const resetAndClose = () => {
     setTitle("");
     setTag("");
     setJiraKey("");
-    closeCreateDialog();
-  };
-
-  const handleOpenChange = (open: boolean) => {
-    if (!open) {
-      setTitle("");
-      setTag("");
-      setJiraKey("");
+    if (isEditing) {
+      closeEditDialog();
+    } else {
       closeCreateDialog();
     }
   };
 
+  const handleOpenChange = (open: boolean) => {
+    if (!open) {
+      resetAndClose();
+    }
+  };
+
+  const dialogTitle = isEditing
+    ? isSubtask
+      ? "Edit Subtask"
+      : "Edit Task"
+    : isSubtask
+      ? "Add Subtask"
+      : "Create Task";
+
+  const submitLabel = isEditing
+    ? "Save Changes"
+    : isSubtask
+      ? "Add Subtask"
+      : "Create Task";
+
   return (
-    <Dialog open={showCreateDialog} onOpenChange={handleOpenChange}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent data-testid="task-create-dialog">
         <DialogHeader>
-          <DialogTitle>{isSubtask ? "Add Subtask" : "Create Task"}</DialogTitle>
+          <DialogTitle>{dialogTitle}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} data-testid="task-create-form">
           <div className="flex flex-col gap-4 py-4">
@@ -106,7 +151,7 @@ export function TaskCreateDialog() {
               disabled={!title.trim()}
               data-testid="task-create-submit"
             >
-              {isSubtask ? "Add Subtask" : "Create Task"}
+              {submitLabel}
             </Button>
           </DialogFooter>
         </form>

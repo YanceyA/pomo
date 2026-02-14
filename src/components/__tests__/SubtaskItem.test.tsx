@@ -15,6 +15,10 @@ vi.mock("@/lib/settingsRepository", () => ({
   getAll: vi.fn(async () => []),
 }));
 
+vi.mock("sonner", () => ({
+  toast: vi.fn(),
+}));
+
 const { useTaskStore } = await import("@/stores/taskStore");
 const { SubtaskItem } = await import("../SubtaskItem");
 
@@ -40,6 +44,9 @@ describe("SubtaskItem", () => {
       tasks: [],
       selectedDate: "2026-02-14",
       isLoading: false,
+      showEditDialog: false,
+      editTask: null,
+      pendingDelete: null,
     });
   });
 
@@ -61,7 +68,7 @@ describe("SubtaskItem", () => {
     expect(checkbox).toHaveAttribute("data-state", "checked");
   });
 
-  it("calls completeTask when checkbox is clicked", async () => {
+  it("calls completeTask when checkbox is clicked on pending subtask", async () => {
     mockInvoke
       .mockResolvedValueOnce(makeSubtask({ status: "completed" }))
       .mockResolvedValueOnce([]);
@@ -74,15 +81,27 @@ describe("SubtaskItem", () => {
     expect(mockInvoke).toHaveBeenCalledWith("complete_task", { id: 2 });
   });
 
-  it("calls deleteTask when delete button is clicked", async () => {
-    mockInvoke.mockResolvedValueOnce(undefined).mockResolvedValueOnce([]);
+  it("calls reopenTask when checkbox is clicked on completed subtask", async () => {
+    mockInvoke
+      .mockResolvedValueOnce(makeSubtask({ status: "pending" }))
+      .mockResolvedValueOnce([]);
 
+    const user = userEvent.setup();
+    render(<SubtaskItem task={makeSubtask({ status: "completed" })} />);
+
+    await user.click(screen.getByTestId("subtask-checkbox-2"));
+
+    expect(mockInvoke).toHaveBeenCalledWith("reopen_task", { id: 2 });
+  });
+
+  it("calls softDeleteTask when delete button is clicked (not invoke directly)", async () => {
     const user = userEvent.setup();
     render(<SubtaskItem task={makeSubtask()} />);
 
     await user.click(screen.getByTestId("subtask-delete-2"));
 
-    expect(mockInvoke).toHaveBeenCalledWith("delete_task", { id: 2 });
+    // softDeleteTask does NOT call invoke immediately
+    expect(mockInvoke).not.toHaveBeenCalledWith("delete_task", { id: 2 });
   });
 
   it("shows jira key when present", () => {
@@ -94,5 +113,70 @@ describe("SubtaskItem", () => {
     render(<SubtaskItem task={makeSubtask({ status: "completed" })} />);
     const title = screen.getByText("Subtask 1");
     expect(title.className).toContain("line-through");
+  });
+
+  it("hides delete button for completed subtasks", () => {
+    render(<SubtaskItem task={makeSubtask({ status: "completed" })} />);
+    expect(screen.queryByTestId("subtask-delete-2")).not.toBeInTheDocument();
+  });
+
+  it("hides delete button for abandoned subtasks", () => {
+    render(<SubtaskItem task={makeSubtask({ status: "abandoned" })} />);
+    expect(screen.queryByTestId("subtask-delete-2")).not.toBeInTheDocument();
+  });
+
+  it("shows edit button for pending subtasks", () => {
+    render(<SubtaskItem task={makeSubtask()} />);
+    expect(screen.getByTestId("subtask-edit-2")).toBeInTheDocument();
+  });
+
+  it("hides edit button for completed subtasks", () => {
+    render(<SubtaskItem task={makeSubtask({ status: "completed" })} />);
+    expect(screen.queryByTestId("subtask-edit-2")).not.toBeInTheDocument();
+  });
+
+  it("inline edit: click edit shows input", async () => {
+    const user = userEvent.setup();
+    render(<SubtaskItem task={makeSubtask()} />);
+
+    await user.click(screen.getByTestId("subtask-edit-2"));
+
+    expect(screen.getByTestId("subtask-edit-input-2")).toBeInTheDocument();
+  });
+
+  it("inline edit: blur saves changed title", async () => {
+    mockInvoke
+      .mockResolvedValueOnce(makeSubtask({ title: "Updated" }))
+      .mockResolvedValueOnce([]);
+
+    const user = userEvent.setup();
+    render(<SubtaskItem task={makeSubtask()} />);
+
+    await user.click(screen.getByTestId("subtask-edit-2"));
+    const input = screen.getByTestId("subtask-edit-input-2");
+    await user.clear(input);
+    await user.type(input, "Updated");
+    await user.tab(); // triggers blur
+
+    expect(mockInvoke).toHaveBeenCalledWith("update_task", {
+      id: 2,
+      title: "Updated",
+      jiraKey: null,
+      tag: null,
+    });
+  });
+
+  it("inline edit: Escape cancels edit", async () => {
+    const user = userEvent.setup();
+    render(<SubtaskItem task={makeSubtask()} />);
+
+    await user.click(screen.getByTestId("subtask-edit-2"));
+    expect(screen.getByTestId("subtask-edit-input-2")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(
+      screen.queryByTestId("subtask-edit-input-2"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Subtask 1")).toBeInTheDocument();
   });
 });

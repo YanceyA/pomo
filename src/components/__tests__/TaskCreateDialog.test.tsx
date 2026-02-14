@@ -15,8 +15,27 @@ vi.mock("@/lib/settingsRepository", () => ({
   getAll: vi.fn(async () => []),
 }));
 
+vi.mock("sonner", () => ({
+  toast: vi.fn(),
+}));
+
 const { useTaskStore } = await import("@/stores/taskStore");
 const { TaskCreateDialog } = await import("../TaskCreateDialog");
+
+const makeTask = (overrides = {}) => ({
+  id: 1,
+  title: "Test task",
+  day_date: "2026-02-14",
+  status: "pending" as const,
+  parent_task_id: null,
+  linked_from_task_id: null,
+  jira_key: null,
+  tag: null,
+  position: 0,
+  created_at: "2026-02-14T09:00:00Z",
+  updated_at: "2026-02-14T09:00:00Z",
+  ...overrides,
+});
 
 describe("TaskCreateDialog", () => {
   beforeEach(() => {
@@ -27,6 +46,9 @@ describe("TaskCreateDialog", () => {
       isLoading: false,
       showCreateDialog: false,
       createParentId: null,
+      showEditDialog: false,
+      editTask: null,
+      pendingDelete: null,
     });
   });
 
@@ -115,5 +137,85 @@ describe("TaskCreateDialog", () => {
     await user.click(screen.getByTestId("task-create-submit"));
 
     expect(useTaskStore.getState().showCreateDialog).toBe(false);
+  });
+
+  // ── Edit mode tests ────────────────────────────────────
+
+  it("shows 'Edit Task' title in edit mode", () => {
+    useTaskStore.setState({
+      showEditDialog: true,
+      editTask: makeTask({ title: "Existing", tag: "dev" }),
+    });
+    render(<TaskCreateDialog />);
+    expect(
+      screen.getByRole("heading", { name: "Edit Task" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows 'Edit Subtask' title when editing a subtask", () => {
+    useTaskStore.setState({
+      showEditDialog: true,
+      editTask: makeTask({ parent_task_id: 5, title: "Sub" }),
+    });
+    render(<TaskCreateDialog />);
+    expect(
+      screen.getByRole("heading", { name: "Edit Subtask" }),
+    ).toBeInTheDocument();
+  });
+
+  it("pre-populates fields from editTask", () => {
+    useTaskStore.setState({
+      showEditDialog: true,
+      editTask: makeTask({
+        title: "My task",
+        tag: "design",
+        jira_key: "LRE-5",
+      }),
+    });
+    render(<TaskCreateDialog />);
+    expect(screen.getByTestId("task-title-input")).toHaveValue("My task");
+    expect(screen.getByTestId("task-tag-input")).toHaveValue("design");
+    expect(screen.getByTestId("task-jira-input")).toHaveValue("LRE-5");
+  });
+
+  it("calls updateTask on submit in edit mode", async () => {
+    useTaskStore.setState({
+      showEditDialog: true,
+      editTask: makeTask({ title: "Old title" }),
+    });
+    mockInvoke
+      .mockResolvedValueOnce(makeTask({ title: "New title" }))
+      .mockResolvedValueOnce([]);
+
+    const user = userEvent.setup();
+    render(<TaskCreateDialog />);
+
+    const input = screen.getByTestId("task-title-input");
+    await user.clear(input);
+    await user.type(input, "New title");
+    await user.click(screen.getByTestId("task-create-submit"));
+
+    expect(mockInvoke).toHaveBeenCalledWith("update_task", {
+      id: 1,
+      title: "New title",
+      jiraKey: null,
+      tag: null,
+    });
+  });
+
+  it("closes edit dialog after successful edit submit", async () => {
+    useTaskStore.setState({
+      showEditDialog: true,
+      editTask: makeTask({ title: "Old" }),
+    });
+    mockInvoke.mockResolvedValueOnce(makeTask()).mockResolvedValueOnce([]);
+
+    const user = userEvent.setup();
+    render(<TaskCreateDialog />);
+
+    await user.click(screen.getByTestId("task-create-submit"));
+
+    expect(useTaskStore.getState().showEditDialog).toBe(false);
+    expect(useTaskStore.getState().editTask).toBeNull();
   });
 });

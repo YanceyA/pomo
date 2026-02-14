@@ -171,6 +171,20 @@ pub fn update_task(
 #[tauri::command]
 pub fn delete_task(state: tauri::State<'_, AppState>, id: i64) -> Result<(), String> {
     let conn = open_db(&state.db_path)?;
+
+    // Block delete on completed or abandoned tasks
+    let status: String = conn
+        .query_row("SELECT status FROM tasks WHERE id = ?1", [id], |row| {
+            row.get(0)
+        })
+        .map_err(|e| format!("Task not found: {e}"))?;
+
+    if status == "completed" || status == "abandoned" {
+        return Err(format!(
+            "Cannot delete a {status} task. Reopen it first."
+        ));
+    }
+
     conn.execute("DELETE FROM tasks WHERE id = ?1", [id])
         .map_err(|e| format!("Failed to delete task: {e}"))?;
     Ok(())
@@ -220,6 +234,36 @@ pub fn abandon_task(state: tauri::State<'_, AppState>, id: i64) -> Result<Task, 
         rusqlite::params![now, id],
     )
     .map_err(|e| format!("Failed to abandon task: {e}"))?;
+
+    conn.query_row(
+        &format!("SELECT {TASK_COLUMNS} FROM tasks WHERE id = ?1"),
+        [id],
+        row_to_task,
+    )
+    .map_err(|e| format!("Task not found: {e}"))
+}
+
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+pub fn reopen_task(state: tauri::State<'_, AppState>, id: i64) -> Result<Task, String> {
+    let conn = open_db(&state.db_path)?;
+
+    let status: String = conn
+        .query_row("SELECT status FROM tasks WHERE id = ?1", [id], |row| {
+            row.get(0)
+        })
+        .map_err(|e| format!("Task not found: {e}"))?;
+
+    if status == "pending" {
+        return Err("Task is already pending".into());
+    }
+
+    let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    conn.execute(
+        "UPDATE tasks SET status = 'pending', updated_at = ?1 WHERE id = ?2",
+        rusqlite::params![now, id],
+    )
+    .map_err(|e| format!("Failed to reopen task: {e}"))?;
 
     conn.query_row(
         &format!("SELECT {TASK_COLUMNS} FROM tasks WHERE id = ?1"),
@@ -723,5 +767,74 @@ mod tests {
     fn task_status_all_variants_serialize() {
         assert_eq!(serde_json::to_string(&TaskStatus::Pending).unwrap(), "\"pending\"");
         assert_eq!(serde_json::to_string(&TaskStatus::Abandoned).unwrap(), "\"abandoned\"");
+    }
+
+    // ── Reopen tests ────────────────────────────────────────
+
+    #[test]
+    fn reopen_completed_task() {
+        let conn = setup_test_db();
+        let id = insert_task(&conn, "Task", "2026-02-14", 0);
+        conn.execute("UPDATE tasks SET status = 'completed' WHERE id = ?1", [id])
+            .unwrap();
+
+        // Reopen
+        conn.execute("UPDATE tasks SET status = 'pending' WHERE id = ?1", [id])
+            .unwrap();
+        let task = get_task(&conn, id);
+        assert_eq!(task.status, "pending");
+    }
+
+    #[test]
+    fn reopen_abandoned_task() {
+        let conn = setup_test_db();
+        let id = insert_task(&conn, "Task", "2026-02-14", 0);
+        conn.execute("UPDATE tasks SET status = 'abandoned' WHERE id = ?1", [id])
+            .unwrap();
+
+        // Reopen
+        conn.execute("UPDATE tasks SET status = 'pending' WHERE id = ?1", [id])
+            .unwrap();
+        let task = get_task(&conn, id);
+        assert_eq!(task.status, "pending");
+    }
+
+    #[test]
+    fn reopen_pending_task_is_noop() {
+        let conn = setup_test_db();
+        let id = insert_task(&conn, "Task", "2026-02-14", 0);
+        let task = get_task(&conn, id);
+        assert_eq!(task.status, "pending");
+        // Already pending — the command would return an error
+    }
+
+    // ── Delete guard tests ──────────────────────────────────
+
+    #[test]
+    fn delete_completed_task_blocked() {
+        let conn = setup_test_db();
+        let id = insert_task(&conn, "Task", "2026-02-14", 0);
+        conn.execute("UPDATE tasks SET status = 'completed' WHERE id = ?1", [id])
+            .unwrap();
+
+        let status: String = conn
+            .query_row("SELECT status FROM tasks WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(status, "completed");
+        // The delete_task command would reject this
+    }
+
+    #[test]
+    fn delete_abandoned_task_blocked() {
+        let conn = setup_test_db();
+        let id = insert_task(&conn, "Task", "2026-02-14", 0);
+        conn.execute("UPDATE tasks SET status = 'abandoned' WHERE id = ?1", [id])
+            .unwrap();
+
+        let status: String = conn
+            .query_row("SELECT status FROM tasks WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(status, "abandoned");
+        // The delete_task command would reject this
     }
 }

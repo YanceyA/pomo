@@ -267,9 +267,9 @@ main (protected, always releasable)
 
 ---
 
-## Milestone 4: Task Management
+## Milestone 4: Task Management ✅ COMPLETE
 
-**Goal:** Full task CRUD with subtasks, drag-and-drop reordering, and day scoping.
+**Goal:** Full task CRUD with subtasks, drag-and-drop reordering, day scoping, and task flexibility (edit/reopen/undo-delete).
 
 **Spec coverage:** TK-1, TK-2, TK-3, TK-4, TK-7, TK-8, TK-9, TK-10, TK-11, TK-12
 
@@ -365,18 +365,65 @@ main (protected, always releasable)
 - `npm run test` passes (136 tests) — **PASS**
 - `cargo clippy -- -D warnings` passes — **PASS**
 
+### PR 4.4 — Task flexibility improvements ✅ COMPLETE
+
+**Status:** Done (2026-02-14). All testing gates passed (83 Rust tests, 165 Vitest tests).
+
+**Scope:**
+- Edit task after creation — reuse TaskCreateDialog in edit mode (title, tag, Jira key)
+- Subtask inline rename — click edit icon to rename in place (Enter/blur saves, Escape cancels)
+- Toggle completion — completed tasks can be reopened (→ pending) via checkbox or Reopen button
+- Toggle abandon — abandoned tasks can be reopened (→ pending) via Reopen button
+- Delete with undo toast — Sonner toast with 10-second Undo button; actual backend delete fires after timeout
+- Block delete on completed/abandoned — must reopen first (backend rejects, UI hides delete button)
+
+**Notes:**
+- New Tauri command `reopen_task`: sets status from completed/abandoned → pending, returns error if already pending.
+- `delete_task` now validates status — rejects deletion of completed/abandoned tasks.
+- Sonner toast library added via `npx shadcn@latest add sonner` (removed `next-themes` dependency from generated component).
+- `<Toaster />` added to `App.tsx` root.
+- Zustand store extended: `reopenTask`, `softDeleteTask`, `undoDelete`, `openEditDialog`/`closeEditDialog`, `showEditDialog`/`editTask`/`pendingDelete` state.
+- `TaskCreateDialog` supports edit mode: pre-populates fields, dynamic title ("Edit Task"/"Edit Subtask"), calls `updateTask` on submit.
+- `TaskPanel` now shows Edit button (always), Reopen button (for completed/abandoned), hides Delete/Abandon/Complete for non-pending.
+- `SubtaskItem` now has inline edit (pencil icon → input), toggle checkbox (reopen on completed), and soft delete.
+
+**Testing:**
+- Rust tests: reopen from completed/abandoned → pending — **PASS**
+- Rust tests: reopen when already pending → error — **PASS**
+- Rust tests: delete rejected for completed/abandoned tasks — **PASS**
+- Vitest + RTL: edit button opens edit dialog with task data — **PASS**
+- Vitest + RTL: checkbox toggles completed → pending (reopen) — **PASS**
+- Vitest + RTL: Reopen button shown for completed/abandoned tasks — **PASS**
+- Vitest + RTL: delete hidden for completed/abandoned tasks — **PASS**
+- Vitest + RTL: delete calls softDeleteTask (no immediate invoke) — **PASS**
+- Vitest + RTL: edit mode pre-populates fields and calls updateTask — **PASS**
+- Vitest + RTL: subtask inline edit (click → input → blur saves, Escape cancels) — **PASS**
+- Vitest + RTL: subtask checkbox toggles completed → pending — **PASS**
+- Vitest: store reopenTask, edit dialog state, softDelete/undoDelete flow — **PASS**
+- `npm run lint` passes — **PASS**
+- `npm run typecheck` passes — **PASS**
+- `npm run test` passes (165 tests) — **PASS**
+- `cargo test` passes (83 tests) — **PASS**
+- `cargo clippy -- -D warnings` passes — **PASS**
+
 ### UAT — Milestone 4
 
 | # | Verify | Pass? |
 |---|--------|-------|
-| 1 | Create a task with title and tag — appears in the task list | |
-| 2 | Add a subtask — appears nested under parent | |
-| 3 | Complete all subtasks, then complete parent — works. Try completing parent with pending subtask — blocked | |
-| 4 | Drag a task to reorder — position persists on reload | |
-| 5 | Mark a task as abandoned — visual indicator shows, task remains visible | |
-| 6 | Delete a task — removed from list and DB | |
-| 7 | Clone a task with subtasks — new independent copy appears | |
-| 8 | Navigate to a different day — task list updates | |
+| 1 | Create a task with title and tag — appears in the task list | ✅ |
+| 2 | Add a subtask — appears nested under parent | ✅ |
+| 3 | Complete all subtasks, then complete parent — works. Try completing parent with pending subtask — blocked | ✅ |
+| 4 | Drag a task to reorder — position persists on reload | ✅ |
+| 5 | Mark a task as abandoned — visual indicator shows, task remains visible | ✅ |
+| 6 | Delete a task — removed from list and DB | ✅ |
+| 7 | Clone a task with subtasks — new independent copy appears | ✅ |
+| 8 | Navigate to a different day — task list updates | ✅ |
+| 9 | Edit a task after creation — title/tag/Jira key updated | ✅ |
+| 10 | Reopen a completed task — returns to pending | ✅ |
+| 11 | Reopen an abandoned task — returns to pending | ✅ |
+| 12 | Delete a task → undo within 10s → task restored | ✅ |
+| 13 | Completed/abandoned task — delete button hidden | ✅ |
+| 14 | Subtask inline rename — edit icon → type → blur saves | ✅ |
 
 ---
 
@@ -770,7 +817,7 @@ Run this against the final build before tagging v1.0.
 | M1: Scaffolding | 2 | Small |
 | M2: Database | 2 | Small |
 | M3: Timer | 2 | Medium |
-| M4: Tasks | 3 | Medium-Large |
+| M4: Tasks | 4 | Medium-Large |
 | M5: Timer-Task Link | 1 | Small |
 | M6: Settings | 1 | Small |
 | M7: Jira | 2 | Medium |

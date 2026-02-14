@@ -20,6 +20,10 @@ vi.mock("@/lib/settingsRepository", () => ({
   getAll: vi.fn(async () => []),
 }));
 
+vi.mock("sonner", () => ({
+  toast: vi.fn(),
+}));
+
 const { useTaskStore } = await import("@/stores/taskStore");
 const { TaskPanel } = await import("../TaskPanel");
 
@@ -60,6 +64,9 @@ describe("TaskPanel", () => {
       isLoading: false,
       showCreateDialog: false,
       createParentId: null,
+      showEditDialog: false,
+      editTask: null,
+      pendingDelete: null,
     });
   });
 
@@ -125,7 +132,7 @@ describe("TaskPanel", () => {
     expect(screen.getByTestId("task-actions-1")).toBeInTheDocument();
   });
 
-  it("calls completeTask when checkbox is clicked", async () => {
+  it("calls completeTask when checkbox is clicked on pending task", async () => {
     mockInvoke.mockResolvedValue(makeTask({ status: "completed" }));
     mockInvoke.mockResolvedValue([]);
 
@@ -137,17 +144,27 @@ describe("TaskPanel", () => {
     expect(mockInvoke).toHaveBeenCalledWith("complete_task", { id: 1 });
   });
 
-  it("calls deleteTask from actions menu", async () => {
-    mockInvoke.mockResolvedValue(undefined);
+  it("calls reopenTask when checkbox is clicked on completed task", async () => {
+    mockInvoke.mockResolvedValue(makeTask({ status: "pending" }));
     mockInvoke.mockResolvedValue([]);
 
+    const user = userEvent.setup();
+    renderWithDnd(makeTask({ status: "completed" }));
+
+    await user.click(screen.getByTestId("task-checkbox-1"));
+
+    expect(mockInvoke).toHaveBeenCalledWith("reopen_task", { id: 1 });
+  });
+
+  it("calls softDeleteTask from actions menu (not invoke directly)", async () => {
     const user = userEvent.setup();
     renderWithDnd(makeTask());
 
     await user.click(screen.getByTestId("task-actions-toggle-1"));
     await user.click(screen.getByTestId("task-delete-1"));
 
-    expect(mockInvoke).toHaveBeenCalledWith("delete_task", { id: 1 });
+    // softDeleteTask does NOT call invoke immediately
+    expect(mockInvoke).not.toHaveBeenCalledWith("delete_task", { id: 1 });
   });
 
   it("calls cloneTask from actions menu", async () => {
@@ -174,5 +191,66 @@ describe("TaskPanel", () => {
     await user.click(screen.getByTestId("task-abandon-1"));
 
     expect(mockInvoke).toHaveBeenCalledWith("abandon_task", { id: 1 });
+  });
+
+  it("shows edit button in actions menu", async () => {
+    const user = userEvent.setup();
+    renderWithDnd(makeTask());
+
+    await user.click(screen.getByTestId("task-actions-toggle-1"));
+    expect(screen.getByTestId("task-edit-1")).toBeInTheDocument();
+  });
+
+  it("edit button opens edit dialog with task data", async () => {
+    const user = userEvent.setup();
+    const task = makeTask({ tag: "dev", jira_key: "PROJ-1" });
+    renderWithDnd(task);
+
+    await user.click(screen.getByTestId("task-actions-toggle-1"));
+    await user.click(screen.getByTestId("task-edit-1"));
+
+    expect(useTaskStore.getState().showEditDialog).toBe(true);
+    expect(useTaskStore.getState().editTask?.id).toBe(1);
+  });
+
+  it("shows Reopen for completed tasks", async () => {
+    const user = userEvent.setup();
+    renderWithDnd(makeTask({ status: "completed" }));
+
+    await user.click(screen.getByTestId("task-actions-toggle-1"));
+    expect(screen.getByTestId("task-reopen-1")).toBeInTheDocument();
+  });
+
+  it("shows Reopen for abandoned tasks", async () => {
+    const user = userEvent.setup();
+    renderWithDnd(makeTask({ status: "abandoned" }));
+
+    await user.click(screen.getByTestId("task-actions-toggle-1"));
+    expect(screen.getByTestId("task-reopen-1")).toBeInTheDocument();
+  });
+
+  it("hides delete button for completed tasks", async () => {
+    const user = userEvent.setup();
+    renderWithDnd(makeTask({ status: "completed" }));
+
+    await user.click(screen.getByTestId("task-actions-toggle-1"));
+    expect(screen.queryByTestId("task-delete-1")).not.toBeInTheDocument();
+  });
+
+  it("hides delete button for abandoned tasks", async () => {
+    const user = userEvent.setup();
+    renderWithDnd(makeTask({ status: "abandoned" }));
+
+    await user.click(screen.getByTestId("task-actions-toggle-1"));
+    expect(screen.queryByTestId("task-delete-1")).not.toBeInTheDocument();
+  });
+
+  it("hides Abandon and Complete for completed tasks", async () => {
+    const user = userEvent.setup();
+    renderWithDnd(makeTask({ status: "completed" }));
+
+    await user.click(screen.getByTestId("task-actions-toggle-1"));
+    expect(screen.queryByTestId("task-abandon-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("task-complete-1")).not.toBeInTheDocument();
   });
 });

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Task } from "@/lib/schemas";
 
 const mockInvoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
@@ -11,6 +12,10 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 vi.mock("@/lib/settingsRepository", () => ({
   getAll: vi.fn(async () => []),
+}));
+
+vi.mock("sonner", () => ({
+  toast: vi.fn(),
 }));
 
 const { useTaskStore } = await import("../taskStore");
@@ -33,13 +38,21 @@ const makeBackendTask = (overrides = {}) => ({
 describe("taskStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
     useTaskStore.setState({
       tasks: [],
       selectedDate: "2026-02-14",
       isLoading: false,
       showCreateDialog: false,
       createParentId: null,
+      showEditDialog: false,
+      editTask: null,
+      pendingDelete: null,
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe("loadTasks", () => {
@@ -144,6 +157,18 @@ describe("taskStore", () => {
     });
   });
 
+  describe("reopenTask", () => {
+    it("calls reopen_task and reloads", async () => {
+      mockInvoke
+        .mockResolvedValueOnce(makeBackendTask({ status: "pending" }))
+        .mockResolvedValueOnce([]);
+
+      await useTaskStore.getState().reopenTask(1);
+
+      expect(mockInvoke).toHaveBeenCalledWith("reopen_task", { id: 1 });
+    });
+  });
+
   describe("cloneTask", () => {
     it("calls clone_task and reloads", async () => {
       mockInvoke
@@ -205,6 +230,88 @@ describe("taskStore", () => {
       useTaskStore.getState().closeCreateDialog();
       expect(useTaskStore.getState().showCreateDialog).toBe(false);
       expect(useTaskStore.getState().createParentId).toBeNull();
+    });
+  });
+
+  describe("edit dialog state", () => {
+    it("opens edit dialog with task data", () => {
+      const task = makeBackendTask({ id: 3, title: "Edit me", tag: "dev" });
+      useTaskStore.getState().openEditDialog(task as Task);
+      expect(useTaskStore.getState().showEditDialog).toBe(true);
+      expect(useTaskStore.getState().editTask?.id).toBe(3);
+      expect(useTaskStore.getState().editTask?.title).toBe("Edit me");
+    });
+
+    it("closes edit dialog and clears task", () => {
+      const task = makeBackendTask({ id: 3 });
+      useTaskStore.getState().openEditDialog(task as Task);
+      useTaskStore.getState().closeEditDialog();
+      expect(useTaskStore.getState().showEditDialog).toBe(false);
+      expect(useTaskStore.getState().editTask).toBeNull();
+    });
+  });
+
+  describe("softDeleteTask", () => {
+    it("removes task from UI immediately", () => {
+      useTaskStore.setState({
+        tasks: [
+          makeBackendTask({ id: 1 }),
+          makeBackendTask({ id: 2, position: 1 }),
+        ] as Task[],
+      });
+
+      useTaskStore.getState().softDeleteTask(1);
+
+      const tasks = useTaskStore.getState().tasks;
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].id).toBe(2);
+    });
+
+    it("sets pending delete state", () => {
+      useTaskStore.setState({ tasks: [makeBackendTask()] as Task[] });
+
+      useTaskStore.getState().softDeleteTask(1);
+
+      expect(useTaskStore.getState().pendingDelete).not.toBeNull();
+      expect(useTaskStore.getState().pendingDelete?.taskId).toBe(1);
+    });
+
+    it("does not call invoke immediately", () => {
+      useTaskStore.setState({ tasks: [makeBackendTask()] as Task[] });
+
+      useTaskStore.getState().softDeleteTask(1);
+
+      expect(mockInvoke).not.toHaveBeenCalledWith("delete_task", { id: 1 });
+    });
+
+    it("calls delete_task after timeout", async () => {
+      mockInvoke.mockResolvedValue([]);
+      useTaskStore.setState({ tasks: [makeBackendTask()] as Task[] });
+
+      useTaskStore.getState().softDeleteTask(1);
+
+      vi.advanceTimersByTime(10_000);
+      await vi.runAllTimersAsync();
+
+      expect(mockInvoke).toHaveBeenCalledWith("delete_task", { id: 1 });
+    });
+  });
+
+  describe("undoDelete", () => {
+    it("cancels pending delete and reloads tasks", async () => {
+      mockInvoke.mockResolvedValue([makeBackendTask()]);
+      useTaskStore.setState({ tasks: [makeBackendTask()] as Task[] });
+
+      useTaskStore.getState().softDeleteTask(1);
+      useTaskStore.getState().undoDelete();
+
+      expect(useTaskStore.getState().pendingDelete).toBeNull();
+
+      // Advance timers — delete should NOT fire
+      vi.advanceTimersByTime(10_000);
+      await vi.runAllTimersAsync();
+
+      expect(mockInvoke).not.toHaveBeenCalledWith("delete_task", { id: 1 });
     });
   });
 

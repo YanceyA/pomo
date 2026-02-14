@@ -8,7 +8,7 @@ Pomo is a local-first Pomodoro timer desktop application built with Tauri v2 + R
 
 **Target platform:** Windows 10/11 desktop (NSIS installer).
 
-**Current status:** M4 complete — Task management with CRUD, subtasks, drag-and-drop, and day scoping/navigation. M3 complete (timer state machine + frontend). M2 complete (SQLite schema v1, TypeScript repository layer). M5 (Timer-Task Link) is next.
+**Current status:** M4 complete — Task management with CRUD, subtasks, drag-and-drop, day scoping/navigation, edit/reopen/undo-delete. M3 complete (timer state machine + frontend). M2 complete (SQLite schema v1, TypeScript repository layer). M5 (Timer-Task Link) is next.
 
 **Reference docs:**
 - [pomo-spec.md](./docs/pomo-spec.md) — Functional specification (requirements T-1..T-7, TK-1..TK-13, J-1..J-8, etc.)
@@ -28,6 +28,7 @@ Charts:             Chart.js 4 + react-chartjs-2 5
 Date navigation:    react-day-picker 9
 Forms:              React Hook Form 7 + Zod 4
 Styling:            Tailwind CSS v4 (via @tailwindcss/vite plugin)
+Toasts:             Sonner 2 (via shadcn/ui)
 UI utilities:       class-variance-authority, clsx, tailwind-merge, lucide-react
 Packaging:          NSIS installer via Tauri bundler
 ```
@@ -70,7 +71,8 @@ pomo/
 │   │   │   ├── input.tsx       # shadcn/ui Input component
 │   │   │   ├── label.tsx       # shadcn/ui Label component
 │   │   │   ├── calendar.tsx    # shadcn/ui Calendar component (react-day-picker v9)
-│   │   │   └── popover.tsx     # shadcn/ui Popover component (Radix)
+│   │   │   ├── popover.tsx     # shadcn/ui Popover component (Radix)
+│   │   │   └── sonner.tsx      # shadcn/ui Sonner toast component
 │   │   ├── TimerPage.tsx       # Main timer page — combines display, controls, selector
 │   │   ├── TimerDisplay.tsx    # Large countdown (MM:SS) with SVG progress ring
 │   │   ├── TimerControls.tsx   # Start, Pause/Resume, Cancel buttons
@@ -171,8 +173,8 @@ Two jobs: `lint-and-test` then `build`.
 - The `test` feature is enabled on the `tauri` dependency.
 - Database tests use `rusqlite::Connection::open_in_memory()` with `PRAGMA foreign_keys = ON` for full schema validation (26 tests covering migrations, tables, indexes, trigger, settings, constraints, foreign keys, and cloud path detection).
 - Timer tests (32 tests) cover: state machine transitions, invalid transition rejection, work count tracking, long break reset, serde roundtrip, DB interval operations (insert/complete/cancel), and full lifecycle cycles.
-- Task tests (19 tests) cover: CRUD operations, subtask creation, parent completion constraints (pending subtasks block completion, abandoned subtasks allow completion), status transitions, cloning with deep subtask copy, reorder position updates, and serde roundtrip.
-- Current Rust test count: 78 (26 database + 32 timer + 19 task + 1 app build smoke).
+- Task tests (24 tests) cover: CRUD operations, subtask creation, parent completion constraints (pending subtasks block completion, abandoned subtasks allow completion), status transitions, cloning with deep subtask copy, reorder position updates, serde roundtrip, reopen from completed/abandoned, reopen-when-pending error, and delete guard for completed/abandoned tasks.
+- Current Rust test count: 83 (26 database + 32 timer + 24 task + 1 app build smoke).
 
 ### Frontend Testing Notes
 - Repository tests mock the `../db` module with `vi.mock()` to avoid Tauri IPC calls.
@@ -182,10 +184,10 @@ Two jobs: `lint-and-test` then `build`.
 - Component and store tests mock `@tauri-apps/api/core` (invoke), `@tauri-apps/api/event` (listen), and `@/lib/settingsRepository` via `vi.mock()`.
 - Timer store tests verify state transitions, event handling, and Tauri command invocations.
 - Component tests use `@testing-library/user-event` for user interaction simulation.
-- Task store tests verify CRUD command invocations, date selection, and dialog state management.
-- Task component tests (TaskPanel, TaskCreateDialog, SubtaskItem) verify rendering of all fields, user interactions (checkbox, actions menu, form submit), and correct command invocations.
+- Task store tests verify CRUD command invocations, date selection, dialog state management, edit dialog state, soft delete/undo flow, and reopen task.
+- Task component tests (TaskPanel, TaskCreateDialog, SubtaskItem) verify rendering of all fields, user interactions (checkbox, actions menu, form submit), correct command invocations, edit mode, toggle completion/reopen, delete guards for completed/abandoned, soft delete (no immediate invoke), inline subtask editing, and undo toast flow.
 - DateNavigator tests verify: "Today" rendering, formatted date for non-today, Today button visibility, past-day indicator, prev/next day navigation with store updates, calendar popover open/close, and calendar date selection.
-- Current test count: 136 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 15 timer store + 14 task store + 8 timer display + 8 timer controls + 7 interval type selector + 13 task panel + 9 task create dialog + 7 subtask item + 4 task list + 11 date navigator).
+- Current test count: 165 Vitest tests (14 schema + 4 settings + 4 intervals + 13 tasks + 3 links + 2 app smoke + 15 timer store + 22 task store + 8 timer display + 8 timer controls + 7 interval type selector + 21 task panel + 14 task create dialog + 15 subtask item + 4 task list + 11 date navigator).
 
 ## Architecture Notes
 
@@ -213,19 +215,21 @@ Two jobs: `lint-and-test` then `build`.
 - **Event flow**: TimerPage `useEffect` → `loadSettings()` + `syncState()` + `initEventListeners()`. Tick events update `remainingMs` in store. Complete events reset to idle and show completion notice.
 
 ### Task Management (Implemented — PR 4.1)
-- Tauri commands in `src-tauri/src/tasks.rs`: `create_task`, `update_task`, `delete_task`, `complete_task`, `abandon_task`, `get_tasks_by_date`, `clone_task`, `reorder_tasks`.
+- Tauri commands in `src-tauri/src/tasks.rs`: `create_task`, `update_task`, `delete_task`, `complete_task`, `abandon_task`, `reopen_task`, `get_tasks_by_date`, `clone_task`, `reorder_tasks`.
 - Commands open their own DB connection with `PRAGMA foreign_keys = ON` (not sharing the timer's connection).
 - `complete_task` validates no pending subtasks exist before allowing parent completion — returns error if blocked.
 - `clone_task` deep copies the task and all its subtasks with fresh IDs and `pending` status.
 - Task auto-positioning: `create_task` computes the next position as `MAX(position) + 1` for the day.
-- **Zustand store** (`src/stores/taskStore.ts`): manages task list, selected date, create dialog state. All actions call Tauri commands via `invoke()` then reload the task list.
+- **Zustand store** (`src/stores/taskStore.ts`): manages task list, selected date, create/edit dialog state, pending delete (undo toast). Actions: `reopenTask`, `softDeleteTask`, `undoDelete`, `openEditDialog`, `closeEditDialog` in addition to CRUD. All actions call Tauri commands via `invoke()` then reload the task list.
 - **DateNavigator** (`src/components/DateNavigator.tsx`): date navigation with prev/next day buttons, calendar popover (shadcn/ui Calendar + Popover using react-day-picker v9), "Today" button when viewing non-today dates, and "Viewing a past day" indicator. Connects to `taskStore.setSelectedDate()`.
 - **TaskList** (`src/components/TaskList.tsx`): renders DateNavigator, add button, and sortable TaskPanel for each parent task. Uses `DndContext` + `SortableContext` with `verticalListSortingStrategy` for drag-and-drop. `PointerSensor` (distance: 8) and `KeyboardSensor` with `sortableKeyboardCoordinates`. `DragOverlay` renders `TaskPanelOverlay` during drag.
 - **TaskPanel** (`src/components/TaskPanel.tsx`): sortable task card using `useSortable` hook. Drag handle via `setActivatorNodeRef` on GripVertical icon button. Applies `CSS.Transform` and `transition` styles. Displays title, tag badge, Jira key, status indicator, subtask list, and expandable action menu.
 - **TaskPanelOverlay** (`src/components/TaskPanelOverlay.tsx`): simplified task card for drag overlay preview — shows title, tag badge, subtask count.
-- **TaskCreateDialog** (`src/components/TaskCreateDialog.tsx`): shadcn/ui Dialog for creating tasks (title, tag, Jira key) and subtasks (title only).
-- **SubtaskItem** (`src/components/SubtaskItem.tsx`): compact checkbox + title row for subtasks with complete and delete actions.
-- Status transitions: pending → completed (with subtask check), pending → abandoned.
+- **TaskCreateDialog** (`src/components/TaskCreateDialog.tsx`): shadcn/ui Dialog for creating and editing tasks (title, tag, Jira key) and subtasks (title only). Edit mode pre-populates fields and calls `updateTask` on submit.
+- **SubtaskItem** (`src/components/SubtaskItem.tsx`): compact checkbox + title row for subtasks with complete, reopen, inline edit (pencil icon → input, Enter/blur saves, Escape cancels), and soft delete with undo toast.
+- Status transitions: pending → completed (with subtask check), pending → abandoned, completed → pending (reopen), abandoned → pending (reopen).
+- Delete guard: completed/abandoned tasks cannot be deleted (backend rejects, UI hides delete button). Must reopen first.
+- Soft delete with undo: delete removes task from UI immediately, shows Sonner toast with "Undo" button (10s timeout). Actual backend delete fires after timeout. Undo cancels the timeout and reloads tasks.
 - App layout updated: `App.tsx` renders `<TimerPage />` + `<TaskList />` in a vertical stack.
 
 ### Database

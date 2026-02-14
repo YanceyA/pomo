@@ -23,6 +23,11 @@ vi.mock("@/lib/settingsRepository", () => ({
   getAll: vi.fn(async () => []),
 }));
 
+vi.mock("sonner", () => ({
+  toast: vi.fn(),
+  Toaster: () => null,
+}));
+
 const App = (await import("./App")).default;
 
 describe("App", () => {

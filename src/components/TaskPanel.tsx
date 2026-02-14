@@ -6,6 +6,8 @@ import {
   GripVertical,
   ListPlus,
   MoreHorizontal,
+  Pencil,
+  RotateCcw,
   Trash2,
   X,
 } from "lucide-react";
@@ -26,9 +28,11 @@ interface TaskPanelProps {
 export function TaskPanel({ task, subtasks }: TaskPanelProps) {
   const completeTask = useTaskStore((s) => s.completeTask);
   const abandonTask = useTaskStore((s) => s.abandonTask);
-  const deleteTask = useTaskStore((s) => s.deleteTask);
+  const reopenTask = useTaskStore((s) => s.reopenTask);
+  const softDeleteTask = useTaskStore((s) => s.softDeleteTask);
   const cloneTask = useTaskStore((s) => s.cloneTask);
   const openCreateDialog = useTaskStore((s) => s.openCreateDialog);
+  const openEditDialog = useTaskStore((s) => s.openEditDialog);
   const [showActions, setShowActions] = useState(false);
 
   const {
@@ -48,12 +52,15 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
 
   const isCompleted = task.status === "completed";
   const isAbandoned = task.status === "abandoned";
+  const isPending = task.status === "pending";
   const isDone = isCompleted || isAbandoned;
 
   const hasPendingSubtasks = subtasks.some((s) => s.status === "pending");
 
   const handleToggle = async () => {
-    if (!isDone) {
+    if (isCompleted) {
+      await reopenTask(task.id);
+    } else if (isPending) {
       await completeTask(task.id);
     }
   };
@@ -83,7 +90,7 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
         <Checkbox
           checked={isCompleted}
           onCheckedChange={handleToggle}
-          disabled={isDone || hasPendingSubtasks}
+          disabled={isAbandoned || (isPending && hasPendingSubtasks)}
           className="mt-0.5"
           data-testid={`task-checkbox-${task.id}`}
         />
@@ -150,7 +157,16 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
           className="mt-2 flex flex-wrap gap-1 border-t pt-2"
           data-testid={`task-actions-${task.id}`}
         >
-          {!isDone && (
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => openEditDialog(task)}
+            data-testid={`task-edit-${task.id}`}
+          >
+            <Pencil className="size-3" />
+            Edit
+          </Button>
+          {isPending && (
             <Button
               variant="ghost"
               size="xs"
@@ -161,7 +177,7 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
               Add Subtask
             </Button>
           )}
-          {!isDone && (
+          {isPending && (
             <Button
               variant="ghost"
               size="xs"
@@ -172,7 +188,7 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
               Abandon
             </Button>
           )}
-          {!isDone && !hasPendingSubtasks && (
+          {isPending && !hasPendingSubtasks && (
             <Button
               variant="ghost"
               size="xs"
@@ -181,6 +197,17 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
             >
               <Check className="size-3" />
               Complete
+            </Button>
+          )}
+          {isDone && (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => reopenTask(task.id)}
+              data-testid={`task-reopen-${task.id}`}
+            >
+              <RotateCcw className="size-3" />
+              Reopen
             </Button>
           )}
           <Button
@@ -192,16 +219,18 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
             <Copy className="size-3" />
             Clone
           </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => deleteTask(task.id)}
-            className="text-destructive hover:text-destructive"
-            data-testid={`task-delete-${task.id}`}
-          >
-            <Trash2 className="size-3" />
-            Delete
-          </Button>
+          {isPending && (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => softDeleteTask(task.id)}
+              className="text-destructive hover:text-destructive"
+              data-testid={`task-delete-${task.id}`}
+            >
+              <Trash2 className="size-3" />
+              Delete
+            </Button>
+          )}
         </div>
       )}
     </div>

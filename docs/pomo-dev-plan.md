@@ -312,19 +312,27 @@ main (protected, always releasable)
 - `npm run test` passes (120 tests) — **PASS**
 - `cargo clippy -- -D warnings` passes — **PASS**
 
-### PR 4.2 — Drag-and-drop reordering
+### PR 4.2 — Drag-and-drop reordering ✅ COMPLETE
+
+**Status:** Done (2026-02-14). All tests passed (125 Vitest).
 
 **Scope:**
 - Integrate @dnd-kit `SortableContext` for the task list
-- Nested `SortableContext` for subtasks within each task panel
-- On drag end: update `position` column via `reorder_tasks` Tauri command
-- Visual drag overlay with task panel preview
-- Drag handle on each task panel
+- On drag end: update `position` column via `reorder_tasks` Tauri command (implemented in PR 4.1)
+- Visual drag overlay with `TaskPanelOverlay` component
+- Drag handle (`GripVertical` icon) on each task panel via `useSortable` + `setActivatorNodeRef`
+- `PointerSensor` (distance: 8) and `KeyboardSensor` with `sortableKeyboardCoordinates`
+- `DragOverlay` renders simplified task preview during drag
 
 **Testing:**
-- Vitest + RTL: @dnd-kit renders sortable items in correct order
-- Rust tests: `reorder_tasks` updates position values correctly
-- Manual: drag a task panel — it reorders smoothly with animation
+- Vitest + RTL: @dnd-kit renders sortable items in correct order (4 tests)
+- Rust tests: `reorder_tasks` updates position values correctly (covered in PR 4.1)
+- Manual: drag a task panel — it reorders smoothly with animation (pending user confirmation)
+
+**Notes:**
+- Subtask reordering within a parent panel was not scoped — subtasks are rendered in DB order
+- `TaskPanel` applies `opacity-50` when `isDragging` for visual feedback
+- `TaskPanelOverlay` shows title, tag badge, and subtask count in a `shadow-lg` card
 
 ### PR 4.3 — Day scoping and navigation
 

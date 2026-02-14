@@ -1,4 +1,14 @@
-import { Check, Copy, ListPlus, MoreHorizontal, Trash2, X } from "lucide-react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  Check,
+  Copy,
+  GripVertical,
+  ListPlus,
+  MoreHorizontal,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +31,21 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
   const openCreateDialog = useTaskStore((s) => s.openCreateDialog);
   const [showActions, setShowActions] = useState(false);
 
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: task.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
   const isCompleted = task.status === "completed";
   const isAbandoned = task.status === "abandoned";
   const isDone = isCompleted || isAbandoned;
@@ -35,13 +60,26 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
 
   return (
     <div
+      ref={setNodeRef}
+      style={style}
       className={cn(
         "rounded-lg border bg-card p-3 shadow-sm",
         isAbandoned && "opacity-60",
+        isDragging && "opacity-50",
       )}
       data-testid={`task-panel-${task.id}`}
+      {...attributes}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-2">
+        <button
+          type="button"
+          ref={setActivatorNodeRef}
+          className="mt-0.5 cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+          data-testid={`task-drag-handle-${task.id}`}
+          {...listeners}
+        >
+          <GripVertical className="size-4" />
+        </button>
         <Checkbox
           checked={isCompleted}
           onCheckedChange={handleToggle}
@@ -49,7 +87,7 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
           className="mt-0.5"
           data-testid={`task-checkbox-${task.id}`}
         />
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span
               className={cn(
@@ -78,7 +116,7 @@ export function TaskPanel({ task, subtasks }: TaskPanelProps) {
           </div>
           {task.jira_key && (
             <span
-              className="text-xs text-blue-600 hover:underline cursor-pointer"
+              className="cursor-pointer text-xs text-blue-600 hover:underline"
               data-testid={`task-jira-${task.id}`}
             >
               {task.jira_key}

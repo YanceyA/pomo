@@ -1,9 +1,26 @@
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { Plus } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useTaskStore } from "@/stores/taskStore";
 import { TaskCreateDialog } from "./TaskCreateDialog";
 import { TaskPanel } from "./TaskPanel";
+import { TaskPanelOverlay } from "./TaskPanelOverlay";
 
 export function TaskList() {
   const tasks = useTaskStore((s) => s.tasks);
@@ -11,6 +28,9 @@ export function TaskList() {
   const isLoading = useTaskStore((s) => s.isLoading);
   const loadTasks = useTaskStore((s) => s.loadTasks);
   const openCreateDialog = useTaskStore((s) => s.openCreateDialog);
+  const reorderTasks = useTaskStore((s) => s.reorderTasks);
+
+  const [activeId, setActiveId] = useState<number | null>(null);
 
   useEffect(() => {
     loadTasks();
@@ -20,6 +40,43 @@ export function TaskList() {
   const parentTasks = tasks.filter((t) => t.parent_task_id === null);
   const getSubtasks = (parentId: number) =>
     tasks.filter((t) => t.parent_task_id === parentId);
+
+  const parentIds = parentTasks.map((t) => t.id);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  const handleDragStart = (event: { active: { id: string | number } }) => {
+    setActiveId(Number(event.active.id));
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveId(null);
+
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = parentIds.indexOf(Number(active.id));
+    const newIndex = parentIds.indexOf(Number(over.id));
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const newOrder = arrayMove(parentIds, oldIndex, newIndex);
+    await reorderTasks(newOrder);
+  };
+
+  const handleDragCancel = () => {
+    setActiveId(null);
+  };
+
+  const activeTask = activeId
+    ? parentTasks.find((t) => t.id === activeId)
+    : null;
 
   const formatDateHeader = (dateStr: string) => {
     const today = new Date();
@@ -73,9 +130,34 @@ export function TaskList() {
         </p>
       )}
 
-      {parentTasks.map((task) => (
-        <TaskPanel key={task.id} task={task} subtasks={getSubtasks(task.id)} />
-      ))}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        <SortableContext
+          items={parentIds}
+          strategy={verticalListSortingStrategy}
+        >
+          {parentTasks.map((task) => (
+            <TaskPanel
+              key={task.id}
+              task={task}
+              subtasks={getSubtasks(task.id)}
+            />
+          ))}
+        </SortableContext>
+        <DragOverlay>
+          {activeTask ? (
+            <TaskPanelOverlay
+              task={activeTask}
+              subtasks={getSubtasks(activeTask.id)}
+            />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       <TaskCreateDialog />
     </div>

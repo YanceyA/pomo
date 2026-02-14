@@ -1,3 +1,8 @@
+import { DndContext } from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,6 +38,19 @@ const makeTask = (overrides = {}) => ({
   ...overrides,
 });
 
+function renderWithDnd(
+  task: ReturnType<typeof makeTask>,
+  subtasks: ReturnType<typeof makeTask>[] = [],
+) {
+  return render(
+    <DndContext>
+      <SortableContext items={[task.id]} strategy={verticalListSortingStrategy}>
+        <TaskPanel task={task} subtasks={subtasks} />
+      </SortableContext>
+    </DndContext>,
+  );
+}
+
 describe("TaskPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -46,24 +64,27 @@ describe("TaskPanel", () => {
   });
 
   it("renders task title", () => {
-    render(<TaskPanel task={makeTask()} subtasks={[]} />);
+    renderWithDnd(makeTask());
     expect(screen.getByTestId("task-title-1")).toHaveTextContent("Test task");
   });
 
+  it("renders drag handle", () => {
+    renderWithDnd(makeTask());
+    expect(screen.getByTestId("task-drag-handle-1")).toBeInTheDocument();
+  });
+
   it("renders tag badge when present", () => {
-    render(<TaskPanel task={makeTask({ tag: "dev" })} subtasks={[]} />);
+    renderWithDnd(makeTask({ tag: "dev" }));
     expect(screen.getByTestId("task-tag-1")).toHaveTextContent("dev");
   });
 
   it("does not render tag badge when absent", () => {
-    render(<TaskPanel task={makeTask()} subtasks={[]} />);
+    renderWithDnd(makeTask());
     expect(screen.queryByTestId("task-tag-1")).not.toBeInTheDocument();
   });
 
   it("renders Jira key when present", () => {
-    render(
-      <TaskPanel task={makeTask({ jira_key: "PROJ-123" })} subtasks={[]} />,
-    );
+    renderWithDnd(makeTask({ jira_key: "PROJ-123" }));
     expect(screen.getByTestId("task-jira-1")).toHaveTextContent("PROJ-123");
   });
 
@@ -73,14 +94,12 @@ describe("TaskPanel", () => {
       title: "Subtask 1",
       parent_task_id: 1,
     });
-    render(<TaskPanel task={makeTask()} subtasks={[subtask]} />);
+    renderWithDnd(makeTask(), [subtask]);
     expect(screen.getByTestId("subtask-2")).toBeInTheDocument();
   });
 
   it("shows abandoned badge for abandoned tasks", () => {
-    render(
-      <TaskPanel task={makeTask({ status: "abandoned" })} subtasks={[]} />,
-    );
+    renderWithDnd(makeTask({ status: "abandoned" }));
     expect(screen.getByTestId("task-abandoned-badge-1")).toBeInTheDocument();
   });
 
@@ -91,14 +110,14 @@ describe("TaskPanel", () => {
       status: "pending",
       parent_task_id: 1,
     });
-    render(<TaskPanel task={makeTask()} subtasks={[subtask]} />);
+    renderWithDnd(makeTask(), [subtask]);
     const checkbox = screen.getByTestId("task-checkbox-1");
     expect(checkbox).toBeDisabled();
   });
 
   it("toggles actions menu on click", async () => {
     const user = userEvent.setup();
-    render(<TaskPanel task={makeTask()} subtasks={[]} />);
+    renderWithDnd(makeTask());
 
     expect(screen.queryByTestId("task-actions-1")).not.toBeInTheDocument();
 
@@ -111,7 +130,7 @@ describe("TaskPanel", () => {
     mockInvoke.mockResolvedValue([]);
 
     const user = userEvent.setup();
-    render(<TaskPanel task={makeTask()} subtasks={[]} />);
+    renderWithDnd(makeTask());
 
     await user.click(screen.getByTestId("task-checkbox-1"));
 
@@ -123,7 +142,7 @@ describe("TaskPanel", () => {
     mockInvoke.mockResolvedValue([]);
 
     const user = userEvent.setup();
-    render(<TaskPanel task={makeTask()} subtasks={[]} />);
+    renderWithDnd(makeTask());
 
     await user.click(screen.getByTestId("task-actions-toggle-1"));
     await user.click(screen.getByTestId("task-delete-1"));
@@ -136,7 +155,7 @@ describe("TaskPanel", () => {
     mockInvoke.mockResolvedValue([]);
 
     const user = userEvent.setup();
-    render(<TaskPanel task={makeTask()} subtasks={[]} />);
+    renderWithDnd(makeTask());
 
     await user.click(screen.getByTestId("task-actions-toggle-1"));
     await user.click(screen.getByTestId("task-clone-1"));
@@ -149,7 +168,7 @@ describe("TaskPanel", () => {
     mockInvoke.mockResolvedValue([]);
 
     const user = userEvent.setup();
-    render(<TaskPanel task={makeTask()} subtasks={[]} />);
+    renderWithDnd(makeTask());
 
     await user.click(screen.getByTestId("task-actions-toggle-1"));
     await user.click(screen.getByTestId("task-abandon-1"));

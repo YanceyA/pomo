@@ -6,7 +6,7 @@
 
 ## Overview
 
-Pomo stores all data in a local SQLite database (`pomo.db`). You can give AI agents read-only access to this database using the [`@modelcontextprotocol/server-sqlite`](https://www.npmjs.com/package/@modelcontextprotocol/server-sqlite) MCP server.
+Pomo stores all data in a local SQLite database (`pomo.db`). You can give AI agents read-only access to this database using the [`mcp-server-sqlite-npx`](https://www.npmjs.com/package/mcp-server-sqlite-npx) MCP server.
 
 This enables agents to answer questions like:
 - "How many pomodoros did I complete today?"
@@ -42,7 +42,7 @@ Add the following to your MCP client configuration (e.g., Claude Desktop's `clau
       "command": "npx",
       "args": [
         "-y",
-        "@modelcontextprotocol/server-sqlite",
+        "mcp-server-sqlite-npx",
         "C:\\Users\\yance\\AppData\\Roaming\\com.pomo.app\\pomo.db"
       ]
     }
@@ -51,6 +51,18 @@ Add the following to your MCP client configuration (e.g., Claude Desktop's `clau
 ```
 
 > No separate install step is needed — `npx -y` downloads and runs the package automatically.
+
+**Note for Claude Code on Windows:** Wrap the command in `cmd /c` since Claude Code uses a bash shell:
+```json
+{
+  "mcpServers": {
+    "pomo": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "mcp-server-sqlite-npx", "C:\\Users\\yance\\AppData\\Roaming\\com.pomo.app\\pomo.db"]
+    }
+  }
+}
+```
 
 ### 3. Verify the Connection
 

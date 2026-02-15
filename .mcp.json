@@ -1,10 +1,9 @@
 {
   "mcpServers": {
     "pomo": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "-y",
-        "@modelcontextprotocol/server-sqlite",
+        "C:\\Users\\yance\\AppData\\Roaming\\npm\\node_modules\\mcp-server-sqlite-npx\\dist\\index.js",
         "C:\\Users\\yance\\AppData\\Roaming\\com.pomo.app\\pomo.db"
       ]
     }

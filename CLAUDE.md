@@ -6,8 +6,8 @@ Guidance for Claude Code when working in this repository. Detailed architecture,
 
 Pomo is a local-first Pomodoro timer desktop app built with **Tauri v2 + React 19**. It combines timer management, task tracking, optional Jira integration, and reporting for focused work sessions.
 
-**Target platform:** Windows 10/11 (NSIS installer).
-**Current status:** M10 complete (alarm audio, DB path config, MCP docs). M1-M6, M8-M9 complete. M7 skipped (Jira — IT blockers). Next: M11 (UI overhaul), M12 (installer).
+**Target platform:** Windows 10/11 (portable exe, no installer required).
+**Current status:** M12 complete (portable build). M1-M6, M8-M10 complete. M7 skipped (Jira — IT blockers). Next: M11 (UI overhaul).
 
 ## Tech Stack
 
@@ -47,7 +47,7 @@ npm run dev                    # Vite only
 # Build
 npm run typecheck              # tsc --noEmit
 npm run build                  # tsc && vite build
-npm run tauri build            # NSIS installer
+npm run build:portable         # Portable exe (target/release/pomo.exe)
 
 # Test
 npm run test                   # Vitest (once)
@@ -100,6 +100,7 @@ Read these on-demand when working on specific subsystems:
 - [learning] `vi.mock()` must be called before importing the mocked module — use dynamic `await import()` for repositories
 - [learning] Tauri commands need `#[allow(clippy::needless_pass_by_value)]` because `State` must be passed by value
 - [directive] Branch naming: `feat/M{n}-{description}`. All PRs target `main`.
+- [convention] Portable mode: place a `portable` marker file next to `pomo.exe` → config & DB default to `{exe_dir}/data/`. Without the marker, standard `%APPDATA%` is used.
 
 ## Updating This File
 

@@ -50,7 +50,9 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .expect("failed to resolve app data directory");
-            let db_path = config::resolve_db_path(&app_data_dir);
+            let data_dir = config::resolve_data_dir(&app_data_dir);
+            std::fs::create_dir_all(&data_dir).expect("failed to create data directory");
+            let db_path = config::resolve_db_path(&data_dir);
             database::initialize(&db_path)?;
             app.manage(timer::AppState::new(db_path));
             Ok(())

@@ -3,18 +3,42 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, Runtime};
 
-/// Application configuration stored in `{app_data_dir}/config.json`.
-/// This file lives in the default app data directory so we can always find it,
-/// even when the user has moved the database elsewhere.
+/// Application configuration stored in the data directory's `config.json`.
+/// In portable mode, the data directory is `{exe_dir}/data/`.
+/// In installed mode, it is the standard `app_data_dir` (`%APPDATA%`).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     /// Custom database path. When `None`, the default location is used.
     pub db_path: Option<String>,
 }
 
+/// Check if the app is running in portable mode.
+/// Portable mode is activated by placing a `portable` marker file
+/// next to the executable.
+pub fn is_portable() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("portable").exists()))
+        .unwrap_or(false)
+}
+
+/// Resolve the data directory for config and default DB storage.
+/// In portable mode (`portable` marker file next to exe), returns `{exe_dir}/data/`.
+/// Otherwise returns the standard `app_data_dir`.
+pub fn resolve_data_dir(app_data_dir: &Path) -> PathBuf {
+    if is_portable() {
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                return exe_dir.join("data");
+            }
+        }
+    }
+    app_data_dir.to_path_buf()
+}
+
 /// Read the config file. Returns default config if file doesn't exist or is invalid.
-pub fn read_config(app_data_dir: &Path) -> AppConfig {
-    let config_path = app_data_dir.join("config.json");
+pub fn read_config(data_dir: &Path) -> AppConfig {
+    let config_path = data_dir.join("config.json");
     if !config_path.exists() {
         return AppConfig::default();
     }
@@ -25,8 +49,8 @@ pub fn read_config(app_data_dir: &Path) -> AppConfig {
 }
 
 /// Write the config file.
-fn write_config(app_data_dir: &Path, config: &AppConfig) -> Result<(), String> {
-    let config_path = app_data_dir.join("config.json");
+fn write_config(data_dir: &Path, config: &AppConfig) -> Result<(), String> {
+    let config_path = data_dir.join("config.json");
     let contents =
         serde_json::to_string_pretty(config).map_err(|e| format!("Failed to serialize config: {e}"))?;
     std::fs::write(&config_path, contents).map_err(|e| format!("Failed to write config: {e}"))
@@ -34,11 +58,11 @@ fn write_config(app_data_dir: &Path, config: &AppConfig) -> Result<(), String> {
 
 /// Resolve the database path from config.
 /// Returns the custom path if set and valid, otherwise the default.
-pub fn resolve_db_path(app_data_dir: &Path) -> PathBuf {
-    let config = read_config(app_data_dir);
+pub fn resolve_db_path(data_dir: &Path) -> PathBuf {
+    let config = read_config(data_dir);
     match config.db_path {
         Some(ref custom) if !custom.is_empty() => PathBuf::from(custom),
-        _ => app_data_dir.join("pomo.db"),
+        _ => data_dir.join("pomo.db"),
     }
 }
 
@@ -50,6 +74,7 @@ pub struct DbInfo {
     pub is_cloud_synced: bool,
     pub journal_mode: String,
     pub default_path: String,
+    pub is_portable: bool,
 }
 
 /// Get information about the current database location and configuration.
@@ -61,9 +86,10 @@ pub fn get_db_info<R: Runtime>(app: AppHandle<R>) -> Result<DbInfo, String> {
         .app_data_dir()
         .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
 
-    let config = read_config(&app_data_dir);
-    let default_path = app_data_dir.join("pomo.db");
-    let db_path = resolve_db_path(&app_data_dir);
+    let data_dir = resolve_data_dir(&app_data_dir);
+    let config = read_config(&data_dir);
+    let default_path = data_dir.join("pomo.db");
+    let db_path = resolve_db_path(&data_dir);
     let is_cloud = database::is_cloud_synced_path(&db_path);
 
     Ok(DbInfo {
@@ -72,6 +98,7 @@ pub fn get_db_info<R: Runtime>(app: AppHandle<R>) -> Result<DbInfo, String> {
         is_cloud_synced: is_cloud,
         journal_mode: if is_cloud { "DELETE".to_string() } else { "WAL".to_string() },
         default_path: default_path.to_string_lossy().to_string(),
+        is_portable: is_portable(),
     })
 }
 
@@ -85,6 +112,8 @@ pub fn change_db_path<R: Runtime>(app: AppHandle<R>, new_directory: String) -> R
         .app_data_dir()
         .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
 
+    let data_dir = resolve_data_dir(&app_data_dir);
+
     let new_dir = PathBuf::from(&new_directory);
     if !new_dir.exists() {
         return Err("Selected directory does not exist.".to_string());
@@ -94,7 +123,7 @@ pub fn change_db_path<R: Runtime>(app: AppHandle<R>, new_directory: String) -> R
     }
 
     let new_db_path = new_dir.join("pomo.db");
-    let current_db_path = resolve_db_path(&app_data_dir);
+    let current_db_path = resolve_db_path(&data_dir);
 
     // Don't copy over the same file
     if current_db_path != new_db_path {
@@ -109,7 +138,7 @@ pub fn change_db_path<R: Runtime>(app: AppHandle<R>, new_directory: String) -> R
     let config = AppConfig {
         db_path: Some(new_db_path.to_string_lossy().to_string()),
     };
-    write_config(&app_data_dir, &config)?;
+    write_config(&data_dir, &config)?;
 
     let is_cloud = database::is_cloud_synced_path(&new_db_path);
     Ok(DbInfo {
@@ -117,7 +146,8 @@ pub fn change_db_path<R: Runtime>(app: AppHandle<R>, new_directory: String) -> R
         is_custom: true,
         is_cloud_synced: is_cloud,
         journal_mode: if is_cloud { "DELETE".to_string() } else { "WAL".to_string() },
-        default_path: app_data_dir.join("pomo.db").to_string_lossy().to_string(),
+        default_path: data_dir.join("pomo.db").to_string_lossy().to_string(),
+        is_portable: is_portable(),
     })
 }
 
@@ -132,8 +162,9 @@ pub fn reset_db_path<R: Runtime>(app: AppHandle<R>) -> Result<DbInfo, String> {
         .app_data_dir()
         .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
 
-    let default_path = app_data_dir.join("pomo.db");
-    let current_db_path = resolve_db_path(&app_data_dir);
+    let data_dir = resolve_data_dir(&app_data_dir);
+    let default_path = data_dir.join("pomo.db");
+    let current_db_path = resolve_db_path(&data_dir);
 
     // Copy current DB back to default location if it's different
     if current_db_path != default_path && current_db_path.exists() && !default_path.exists() {
@@ -143,7 +174,7 @@ pub fn reset_db_path<R: Runtime>(app: AppHandle<R>) -> Result<DbInfo, String> {
 
     // Write config with no custom path
     let config = AppConfig { db_path: None };
-    write_config(&app_data_dir, &config)?;
+    write_config(&data_dir, &config)?;
 
     let is_cloud = database::is_cloud_synced_path(&default_path);
     Ok(DbInfo {
@@ -152,6 +183,7 @@ pub fn reset_db_path<R: Runtime>(app: AppHandle<R>) -> Result<DbInfo, String> {
         is_cloud_synced: is_cloud,
         journal_mode: if is_cloud { "DELETE".to_string() } else { "WAL".to_string() },
         default_path: default_path.to_string_lossy().to_string(),
+        is_portable: is_portable(),
     })
 }
 
@@ -259,5 +291,47 @@ mod tests {
         assert!(after.db_path.is_none());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_data_dir_depends_on_portable_mode() {
+        let exe = std::env::current_exe().unwrap();
+        let exe_dir = exe.parent().unwrap();
+        let marker = exe_dir.join("portable");
+
+        let app_data = std::env::temp_dir().join("pomo_test_data_dir_mode");
+        let _ = fs::create_dir_all(&app_data);
+
+        // Without marker: returns app_data_dir
+        let _ = fs::remove_file(&marker);
+        let result = resolve_data_dir(&app_data);
+        assert_eq!(result, app_data);
+
+        // With marker: returns exe-relative data dir
+        fs::write(&marker, "").unwrap();
+        let result = resolve_data_dir(&app_data);
+        assert_eq!(result, exe_dir.join("data"));
+
+        // Cleanup
+        let _ = fs::remove_file(&marker);
+        let _ = fs::remove_dir_all(&app_data);
+    }
+
+    #[test]
+    fn is_portable_depends_on_marker_file() {
+        let exe = std::env::current_exe().unwrap();
+        let exe_dir = exe.parent().unwrap();
+        let marker = exe_dir.join("portable");
+
+        // Ensure clean state
+        let _ = fs::remove_file(&marker);
+        assert!(!is_portable(), "should be false without marker");
+
+        // Create marker
+        fs::write(&marker, "").unwrap();
+        assert!(is_portable(), "should be true with marker");
+
+        // Cleanup
+        let _ = fs::remove_file(&marker);
     }
 }

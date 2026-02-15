@@ -7,7 +7,9 @@
 
 ## Overview
 
-The plan is structured as **10 milestones** delivered through **~20 PRs**. Each milestone is a vertical slice that produces a working, testable increment. Milestones are sequential — each builds on the previous — but PRs within a milestone can often be developed in parallel.
+The plan is structured as **12 milestones** delivered through **~23 PRs**. Each milestone is a vertical slice that produces a working, testable increment. PRs within a milestone can often be developed in parallel.
+
+**Milestone execution order:** M1–M6, M8–M10, M12 (complete), then **M11** (UI overhaul), **M7** (Jira — deferred, IT blockers). M12 was moved ahead because it's pure packaging config and lets us validate the portable exe on locked-down machines early. M7 is deferred until IT approves Jira API access.
 
 ### Agent Documentation
 
@@ -583,9 +585,11 @@ main (protected, always releasable)
 
 ---
 
-## Milestone 7: Jira Integration
+## Milestone 7: Jira Integration _(deferred — IT blockers)_
 
 **Goal:** Tasks can be linked to Jira tickets with optional API validation.
+
+**Status:** Deferred until IT approves Jira API access. No dependency on other milestones — can be implemented at any point.
 
 **Spec coverage:** J-1 through J-8
 
@@ -839,6 +843,57 @@ main (protected, always releasable)
 
 ---
 
+## Milestone 12: Portable Build & Release ✅ COMPLETE
+
+**Goal:** Production packaging as a portable executable (no installer required). IT-locked machines cannot install software, so Pomo ships as a standalone zip — unzip anywhere, run `pomo.exe`.
+
+### PR 12.1 — Portable build and release configuration ✅ COMPLETE
+
+**Status:** Done (2026-02-15). All testing gates passed (138 Rust tests, 307 Vitest tests).
+
+**Scope:**
+- Configure `tauri.conf.json` for production build:
+  - App name, version, description, icon
+  - Bundle targets: set to `[]` (no NSIS/MSI installers — portable only)
+  - WebView2 install mode set to `skip` (Windows 11 ships with it)
+- Build with `npm run build:portable`, collect portable artifact:
+  - `pomo.exe` from `target/release/` (frontend assets embedded by Tauri)
+- Portable mode detection via `portable` marker file next to exe:
+  - `config::is_portable()` checks for `{exe_dir}/portable` marker file
+  - `config::resolve_data_dir()` returns `{exe_dir}/data/` in portable mode, `%APPDATA%` otherwise
+  - Config and default DB both stored in the resolved data directory
+  - Setup hook creates data directory automatically on first run
+- `DbInfo` struct extended with `is_portable` field for frontend awareness
+- `npm run build:portable` script added to `package.json`
+
+**Notes:**
+- Portable mode activated by placing an empty `portable` file next to `pomo.exe`. Without the marker, standard `%APPDATA%` behavior is used (same binary works both ways).
+- Portable zip distribution includes: `pomo.exe` + `portable` marker. The `data/` directory is created automatically on first launch.
+- WebView2 runtime is required (ships with Windows 11; Windows 10 users may need to install it separately).
+- Existing custom DB path configuration (PR 10.2) still works in both modes — custom config always overrides the default.
+
+**Testing:**
+- Rust tests: `is_portable()` returns false without marker, true with marker — **PASS**
+- Rust tests: `resolve_data_dir()` returns app_data_dir without marker, exe-relative with marker — **PASS**
+- Rust tests: all existing config tests pass (9 config tests total) — **PASS**
+- Vitest: all 307 frontend tests pass (SettingsPanel DbInfo mock updated) — **PASS**
+- `npm run lint` passes — **PASS**
+- `npm run typecheck` passes — **PASS**
+- `npm run test` passes (307 tests) — **PASS**
+- `cargo test --no-default-features` passes (138 tests) — **PASS**
+- `cargo clippy -- -D warnings` passes — **PASS**
+
+### UAT — Milestone 12
+
+| # | Verify | Pass? |
+|---|--------|-------|
+| 1 | Unzip and run `pomo.exe` — app works without installation | |
+| 2 | DB created alongside exe (or in configured path), not in %APPDATA% | |
+| 3 | Deleting the folder removes everything cleanly | |
+| 4 | Works on IT-locked machine without admin privileges | |
+
+---
+
 ## Milestone 11: UI Overhaul
 
 **Goal:** Comprehensive UI redesign — consistent layout, improved visual design, empty/loading/error states, and overall UX refinement. Starts with planning and mockups before implementation.
@@ -879,35 +934,6 @@ main (protected, always releasable)
 | 1 | All screens have consistent spacing, typography, and color | |
 | 2 | All screens have appropriate empty, loading, and error states | |
 | 3 | App icon and window title are correct | |
-
----
-
-## Milestone 12: Installer & Release
-
-**Goal:** Production packaging and release configuration.
-
-### PR 12.1 — Installer and release configuration
-
-**Scope:**
-- Configure `tauri.conf.json` for production build:
-  - App name, version, description, icon
-  - NSIS installer settings (install mode, shortcuts)
-  - WebView2 bootstrapper bundled
-- `tauri-plugin-updater` configuration (update endpoint, signing key)
-- Build and test the NSIS installer on a clean Windows machine
-- Create GitHub Release workflow (optional)
-
-**Testing:**
-- Install from NSIS installer on a clean Windows 11 machine
-- App launches, DB initializes, all features work
-- Uninstaller removes the app cleanly
-
-### UAT — Milestone 12
-
-| # | Verify | Pass? |
-|---|--------|-------|
-| 1 | Install from NSIS installer on clean machine — app works | |
-| 2 | Uninstaller removes the app cleanly | |
 
 ---
 
@@ -998,30 +1024,30 @@ Run this against the final build before tagging v1.0.
 | 47 | G-2 | Only in-app alarm, no OS notifications | |
 | 48 | G-3 | Data retained indefinitely, no auto-purge | |
 | 49 | G-4 | Timers and tasks are loosely coupled | |
-| 50 | — | Install from NSIS installer on clean Win 11 | |
-| 51 | — | Uninstall removes app cleanly | |
+| 50 | — | Unzip portable build and run — app works without installation | |
+| 51 | — | Works on IT-locked machine without admin privileges | |
 
 ---
 
 ## Timeline Estimate
 
-| Milestone | PRs | Estimated Effort |
-|---|---|---|
-| M1: Scaffolding | 2 | Small |
-| M2: Database | 2 | Small |
-| M3: Timer | 2 | Medium |
-| M4: Tasks | 4 | Medium-Large |
-| M5: Timer-Task Link | 1 | Small |
-| M6: Settings | 1 | Small |
-| M7: Jira | 2 | Medium |
-| M8: Task History | 1 | Small-Medium |
-| M9: Reporting | 2 | Medium |
-| M10: Audio & MCP | 2 | Small-Medium |
-| M11: UI Overhaul | TBD | Medium-Large |
-| M12: Installer & Release | 1 | Small |
-| **Total** | **~23+ PRs** | |
+| Milestone | PRs | Estimated Effort | Status |
+|---|---|---|---|
+| M1: Scaffolding | 2 | Small | ✅ Complete |
+| M2: Database | 2 | Small | ✅ Complete |
+| M3: Timer | 2 | Medium | ✅ Complete |
+| M4: Tasks | 4 | Medium-Large | ✅ Complete |
+| M5: Timer-Task Link | 2 | Small | ✅ Complete |
+| M6: Settings | 1 | Small | ✅ Complete |
+| M8: Task History | 1 | Small-Medium | ✅ Complete |
+| M9: Reporting | 2 | Medium | ✅ Complete |
+| M10: Audio & MCP | 2 | Small-Medium | ✅ Complete |
+| M12: Portable Build & Release | 1 | Small | ✅ Complete |
+| **M11: UI Overhaul** | **TBD** | **Medium-Large** | **Next** |
+| M7: Jira | 2 | Medium | Deferred (IT) |
+| **Total** | **~23+ PRs** | | |
 
-> Time estimates are intentionally omitted per project conventions. The milestone ordering reflects dependencies — each builds on the previous.
+> Time estimates are intentionally omitted per project conventions. Execution order adjusted: M12 moved ahead for early validation on locked-down machines. M7 deferred pending IT approval for Jira API access.
 
 ---
 

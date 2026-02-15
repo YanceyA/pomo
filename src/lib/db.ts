@@ -9,6 +9,7 @@ interface DbInfo {
   is_cloud_synced: boolean;
   journal_mode: string;
   default_path: string;
+  is_portable: boolean;
 }
 
 export async function getDb(): Promise<Database> {

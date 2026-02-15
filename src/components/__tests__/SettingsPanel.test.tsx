@@ -68,6 +68,7 @@ const defaultDbInfo = {
   is_cloud_synced: false,
   journal_mode: "WAL",
   default_path: "C:\\Users\\user\\AppData\\Roaming\\com.pomo.app\\pomo.db",
+  is_portable: false,
 };
 
 describe("SettingsPanel", () => {

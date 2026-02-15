@@ -809,9 +809,9 @@ main (protected, always releasable)
 - Play sound 2-3 times with 1-second gaps
 
 **Testing:**
-- Manual: alarm plays on interval completion
-- Manual: alarm plays when app is minimized
-- Vitest: audio trigger is called on timer-complete event (mock Audio) ✅
+- Manual: alarm plays on interval completion— **PASS**
+- Manual: alarm plays when app is minimized— **PASS**
+- Vitest: audio trigger is called on timer-complete event (mock Audio) ✅— **PASS**
 
 ### PR 10.2 — MCP documentation and DB path configuration ✅ COMPLETE
 
@@ -826,16 +826,16 @@ main (protected, always releasable)
 **Testing:**
 - Rust tests: config module (7 tests), cloud-sync detection (existing) ✅
 - Vitest: SettingsPanel DB path section (11 new tests, 28 total) ✅
-- Manual: MCP server connects to Pomo DB and can query tasks
+- Manual: MCP server connects to Pomo DB and can query tasks ✅
 
 ### UAT — Milestone 10
 
 | # | Verify | Pass? |
 |---|--------|-------|
-| 1 | Timer completes — calm chime plays | |
-| 2 | Minimize app, timer completes — alarm still audible | |
-| 3 | Configure DB path — app uses new location | |
-| 4 | MCP server can query the Pomo database | |
+| 1 | Timer completes — calm chime plays | ✅|
+| 2 | Minimize app, timer completes — alarm still audible | ✅|
+| 3 | Configure DB path — app uses new location | ✅|
+| 4 | MCP server can query the Pomo database |✅ |
 
 ---
 

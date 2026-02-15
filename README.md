@@ -59,7 +59,7 @@ npm run dev           # Vite frontend only (no Rust backend)
 ```bash
 npm run typecheck     # TypeScript type checking
 npm run build         # Build frontend (tsc + Vite)
-npm run tauri build   # Build NSIS installer (.exe)
+npm run build:portable # Build portable exe (no installer)
 ```
 
 ### Test
@@ -110,11 +110,56 @@ pomo/
 - **Testing:** Vitest + React Testing Library (frontend), cargo test (Rust)
 - **Linting:** Biome (TypeScript/JS), Clippy (Rust)
 
+## Portable Build
+
+Pomo ships as a portable executable — no installer required. This is ideal for IT-locked machines where you can't install software.
+
+### Building
+
+```bash
+npm run build:portable
+```
+
+The compiled exe is at `src-tauri/target/release/pomo.exe`. All frontend assets are embedded in the binary.
+
+### Creating a portable distribution
+
+1. Copy `pomo.exe` to a folder (e.g., `pomo-portable/`)
+2. Create an empty file called `portable` (no extension) in the same folder
+3. Optionally zip the folder for distribution
+
+```
+pomo-portable/
+  pomo.exe
+  portable
+```
+
+The `portable` file tells the app to store all data next to the exe instead of in `%APPDATA%`. On first launch, the app automatically creates a `data/` folder:
+
+```
+pomo-portable/
+  pomo.exe
+  portable
+  data/
+    pomo.db
+    config.json
+```
+
+To uninstall, just delete the folder.
+
+### Without portable mode
+
+If you run `pomo.exe` without the `portable` marker file, it behaves like a standard installed app and stores data in `%APPDATA%/com.pomo.app/`.
+
+### Requirements
+
+- **WebView2 runtime** — Ships with Windows 11. Windows 10 users may need to install it from [Microsoft](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
+
 ## Database
 
 The app uses an embedded SQLite database. On first run, it automatically creates and migrates the database — no manual setup required.
 
-The database file is stored in the Tauri app data directory (typically `%APPDATA%/com.pomo.app/`). The path can be configured in the app's settings.
+In portable mode, the database is stored in the `data/` folder next to the exe. Otherwise, it's stored in `%APPDATA%/com.pomo.app/`. The path can be configured in the app's settings.
 
 ## Troubleshooting
 
@@ -155,4 +200,4 @@ The GitHub Actions pipeline (`.github/workflows/ci.yml`) runs on every push and 
 3. Vitest
 4. Clippy
 5. Rust tests
-6. Tauri build (NSIS installer)
+6. Tauri build
